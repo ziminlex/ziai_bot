@@ -1,2 +1,2 @@
 python-telegram-bot==20.7
-deepseek-api
+deepseek==1.0.0
