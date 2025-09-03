@@ -1,0 +1,2 @@
+python-telegram-bot==20.7
+deepseek==0.0.1
