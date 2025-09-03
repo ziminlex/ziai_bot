@@ -2,7 +2,7 @@ import os
 import logging
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from deepseek import DeepSeek
+from deepseek import DeepSeekAPI
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -53,4 +53,5 @@ def main():
     print("Бот запущен!")
 
 if __name__ == "__main__":
+
     main()
