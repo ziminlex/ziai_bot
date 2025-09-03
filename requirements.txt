@@ -1,3 +1,4 @@
-python-telegram-bot<20.0
+python-telegram-bot>=20.0
 deepseek==1.0.0
+
 
