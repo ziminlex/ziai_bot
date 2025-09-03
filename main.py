@@ -49,7 +49,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         logger.error(f"Ошибка при запросе к DeepSeek: {e}")
-        logger.error(f"Response text: {response.text if 'response' in locals() else 'No response'}")
+        if 'response' in locals():
+            logger.error(f"Response status: {response.status_code}")
+            logger.error(f"Response text: {response.text}")
         await update.message.reply_text("Извините, произошла ошибка. Попробуйте еще раз.")
 
 def main():
