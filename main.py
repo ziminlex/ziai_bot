@@ -12,7 +12,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Ваши ключи (из переменных окружения)
+# Ваши ключи
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
@@ -22,29 +22,38 @@ YANDEX_API_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completio
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает входящие сообщения и отправляет ответ от AI."""
+    user = update.message.from_user
     user_message = update.message.text
+    
+    # Получаем имя пользователя
+    user_name = user.first_name or "Пользователь"
+    if user.last_name:
+        user_name += f" {user.last_name}"
+    if user.username:
+        user_name += f" (@{user.username})"
     
     # Показываем статус "печатает..."
     await update.message.chat.send_action(action="typing")
     
     try:
-        # Подготавливаем запрос к Yandex GPT API
+        # Подготавливаем запрос к Yandex GPT
         headers = {
             "Authorization": f"Api-Key {YANDEX_API_KEY}",
             "Content-Type": "application/json"
         }
         
+        # Добавляем имя пользователя в системный промпт
         data = {
             "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
             "completionOptions": {
                 "stream": False,
-                "temperature": 0.6,
+                "temperature": 0.7,
                 "maxTokens": 2000
             },
             "messages": [
                 {
                     "role": "system", 
-                    "text": "Ты полезный AI-ассистент в Telegram. Отвечай кратко и по делу."
+                    "text": f"Ты полезный AI-ассистент в Telegram. Тебе пишет {user_name}. Отвечай вежливо и персонально."
                 },
                 {
                     "role": "user",
@@ -61,29 +70,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = response.json()
         ai_response = result['result']['alternatives'][0]['message']['text']
         
-        # Отправляем ответ пользователю
-        await update.message.reply_text(ai_response)
+        # Отправляем ответ с упоминанием имени
+        response_with_name = f"{user_name}, {ai_response}"
+        await update.message.reply_text(response_with_name)
         
     except Exception as e:
         logger.error(f"Ошибка при запросе к Yandex GPT: {e}")
         if 'response' in locals():
             logger.error(f"Response status: {response.status_code}")
             logger.error(f"Response text: {response.text}")
-        await update.message.reply_text("Извините, произошла ошибка. Попробуйте еще раз.")
+        await update.message.reply_text(f"{user_name}, извините, произошла ошибка. Попробуйте еще раз.")
 
 def main():
     """Запускает бота."""
     try:
-        # Создаем приложение
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
-        # Добавляем обработчик для текстовых сообщений
-        application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-        )
-        
-        # Запускаем бота
-        print("Бот запущен!")
+        print("Бот запущен! Теперь он знает имена пользователей! 🎉")
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
@@ -94,5 +98,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
