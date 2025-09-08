@@ -358,13 +358,20 @@ def calculate_typing_time(text, user_id):
     # Ограничиваем максимальное время
     return min(total_time, 5.0)  # Максимум 5 секунд
 
-async def simulate_typing(chat, typing_time):
-    """Симулирует печать пользователя"""
+async def simulate_human_typing_simple(chat, message):
+    """Упрощенная симуляция человеческой печати"""
+    # Рассчитываем время печати
+    typing_time = len(message) * random.uniform(0.03, 0.07)
+    typing_time = min(typing_time, 3.0)  # не более 3 секунд
+    
     # Показываем индикатор печати
     await chat.send_action(action="typing")
     
     # Ждем рассчитанное время
     await asyncio.sleep(typing_time)
+    
+    # Отправляем сообщение
+    await chat.send_message(message)
 
 async def send_message_with_delay(chat, message, user_id):
     """Отправляет сообщение с задержкой как человек"""
@@ -733,3 +740,4 @@ if __name__ == "__main__":
     # Проверяем, не запущен ли уже процесс
     print("Запуск бота Юля...")
     main()
+
