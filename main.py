@@ -115,6 +115,26 @@ SLANG_DICTIONARY = {
     'попа': ['ягодицы', 'зад', 'пятая точка']
 }
 
+# Список матерных слов для триггера агрессивной реакции
+MAT_WORDS = [
+    'блять', 'бля', 'блядь', 'блядина', 'блядский', 'блядство',
+    'хуй', 'хуёвый', 'хуёво', 'хуйня', 'хуевый', 'хуево',
+    'пизда', 'пиздец', 'пиздатый', 'пиздецовый', 'пиздос',
+    'ебал', 'ебать', 'ёбнутый', 'ебанутый', 'ебанина',
+    'нахуй', 'нихуя', 'хуя', 'охуеть', 'охуенный',
+    'заебал', 'заебать', 'заебись', 'уебище',
+    'мудак', 'мудозвон', 'мудачина',
+    'падла', 'падлюка', 'гандон', 'гондон',
+    'долбоёб', 'долбаёб', 'долбоеб',
+    'сука', 'сучара', 'сучка',
+    'выебок', 'выебываться',
+    'трахать', 'оттраханный',
+    'конча', 'кончальный',
+    'сперма', 'сперматозоид',
+    'манда', 'мандавожка',
+    'шлюха', 'шлюшка', 'блядушка'
+]
+
 # Стили общения с разной температурой и промптами
 COMMUNICATION_STYLES = {
     'neutral': {
@@ -147,7 +167,13 @@ COMMUNICATION_STYLES = {
     },
     'angry': {
         'temperature': 0.95,
-        'prompt': BASE_SYSTEM_PROMPT + "Ты в ярости! Отвечай агрессивно и угрожающе."
+        'prompt': BASE_SYSTEM_PROMPT + """
+        Ты в ярости! Тебе нахамили, использовали матерные слова. 
+        Отвечай агрессивно, прямо, без церемоний. 
+        Можешь использовать резкие выражения, но оставайся в рамках приличий.
+        Покажи, что ты не потерпишь хамства и неуважения.
+        Требуй извинений и уважительного отношения.
+        """
     }
 }
 
@@ -262,7 +288,27 @@ SPECIAL_RESPONSES = {
         "Серьезные дела! Возьми с собой телефон почитать 😄",
         "По большому - это важно! Удачи в этом непростом деле 🚽",
         "Поняла! Не торопись, делай все качественно 😊"
-    ]
+    ],
+    # Агрессивные ответы на мат
+    'мат_реакция': [
+        "А ну прекрати материться! Я не намерена это терпеть!",
+        "Что за похабщина? Веди себя прилично!",
+        "Прекрати хамить! Я не буду общаться на таком языке!",
+        "Выражайся нормально, а не как сапожник!",
+        "Я не намерена слушать этот мат! Уважай себя и других!",
+        "Хватит материться! Веди себя как цивилизованный человек!",
+        "Что за нецензурщина? Я прекращаю этот разговор!",
+        "Перестань выражаться! Это отвратительно!",
+        "Я не буду терпеть такой язык! Веди себя прилично!",
+        "Хамство и мат - не лучший способ общения! Прекрати!"
+    ],
+    # Ответы на конкретные матерные слова
+    'блять': ["Опять матом разговариваешь? Совсем совесть потерял?"],
+    'бля': ["Хватит материться! Выражайся нормально!"],
+    'хуй': ["Что за похабщина? Веди себя прилично!"],
+    'пизда': ["Прекрати нецензурно выражаться! Это омерзительно!"],
+    'ебал': ["Хватит мата! Я не намерена это слушать!"],
+    'сука': ["Перестань материться! Веди себя достойно!"]
 }
 
 def get_user_context(user_id):
@@ -280,7 +326,8 @@ def get_user_context(user_id):
             'first_interaction': True,
             'user_name': None,
             'typing_speed': random.uniform(0.03, 0.06),
-            'conversation_depth': 0
+            'conversation_depth': 0,
+            'mat_count': 0
         }
     return conversation_context[user_id]
 
@@ -537,12 +584,55 @@ def should_ask_question():
     """Определяет, стоит ли задавать вопрос"""
     return random.random() < 0.3
 
+def check_repeated_mat(user_id, message):
+    """Проверяет повторное использование мата"""
+    context = get_user_context(user_id)
+    lower_msg = message.lower()
+    
+    mat_count = 0
+    for mat_word in MAT_WORDS:
+        if mat_word in lower_msg:
+            mat_count += 1
+    
+    if mat_count > 0:
+        context['mat_count'] = context.get('mat_count', 0) + mat_count
+        
+        # Эскалация агрессии при повторном мате
+        if context['mat_count'] >= 3:
+            return "Я предупреждала! С тобой бесполезно разговаривать. Блокирую!"
+        elif context['mat_count'] >= 2:
+            return "Я же просила не материться! Последнее предупреждение!"
+    
+    return None
+
 def check_special_questions(message):
     """Проверяет специальные вопросы"""
     lower_msg = message.lower().strip()
     
+    # Проверка на матерные слова
+    for mat_word in MAT_WORDS:
+        if mat_word in lower_msg:
+            # Для конкретных матерных слов
+            if mat_word in ['блять', 'блядь']:
+                return random.choice(SPECIAL_RESPONSES['блять'])
+            elif mat_word in ['бля']:
+                return random.choice(SPECIAL_RESPONSES['бля'])
+            elif mat_word in ['хуй', 'хуёвый', 'хуйня']:
+                return random.choice(SPECIAL_RESPONSES['хуй'])
+            elif mat_word in ['пизда', 'пиздец']:
+                return random.choice(SPECIAL_RESPONSES['пизда'])
+            elif mat_word in ['ебал', 'ебать', 'ёбнутый']:
+                return random.choice(SPECIAL_RESPONSES['ебал'])
+            elif mat_word in ['сука', 'сучка']:
+                return random.choice(SPECIAL_RESPONSES['сука'])
+            else:
+                # Общая реакция на мат
+                return random.choice(SPECIAL_RESPONSES['мат_реакция'])
+    
+    # Остальная логика проверки
     for question_pattern, responses in SPECIAL_RESPONSES.items():
-        if question_pattern in lower_msg:
+        if (question_pattern in lower_msg and 
+            question_pattern not in ['мат_реакция', 'блять', 'бля', 'хуй', 'пизда', 'ебал', 'сука']):
             return random.choice(responses)
     
     for slang_word in SLANG_DICTIONARY:
@@ -583,6 +673,11 @@ def build_context_prompt(user_id, user_message, style):
 def detect_communication_style(message: str) -> str:
     """Определяет стиль общения"""
     lower_message = message.lower()
+    
+    # Проверка на матерные слова - приоритет最高
+    for mat_word in MAT_WORDS:
+        if mat_word in lower_message:
+            return 'angry'
     
     for style, triggers in STYLE_TRIGGERS.items():
         if any(trigger in lower_message for trigger in triggers):
@@ -759,6 +854,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     user_message = update.message.text
     
+    # Проверка на повторный мат
+    repeated_mat_response = check_repeated_mat(user_id, user_message)
+    if repeated_mat_response:
+        await update.message.reply_text(repeated_mat_response)
+        return
+    
     base_name = extract_name_from_user(user)
     transformed_name = transform_name(base_name)
     
@@ -770,9 +871,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action(action="typing")
     
     try:
-        await asyncio.sleep(random.uniform(0.3, 1.2))
+        # Для агрессивного стиля уменьшаем задержку
+        if style == 'angry':
+            await asyncio.sleep(random.uniform(0.1, 0.5))
+        else:
+            await asyncio.sleep(random.uniform(0.3, 1.2))
         
-        if await simulate_thinking(update.message.chat):
+        if style != 'angry' and await simulate_thinking(update.message.chat):
             await asyncio.sleep(random.uniform(0.5, 1.0))
         
         ai_response = await call_yandex_gpt_optimized(user_id, user_message, style)
@@ -786,14 +891,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             final_response = ai_response
         
-        # Добавляем все человеческие улучшения
-        final_response = add_human_touch(final_response, style)
-        final_response = add_emotional_reaction(final_response, style)
-        final_response = add_self_corrections(final_response)
-        final_response = add_human_errors(final_response)
-        final_response = get_mood_based_response(final_response, user_id)
-        final_response = add_natural_question(final_response, user_id)
-        final_response = add_natural_ending(final_response)
+        # Для агрессивного стиля меньше человеческих украшений
+        if style != 'angry':
+            final_response = add_human_touch(final_response, style)
+            final_response = add_emotional_reaction(final_response, style)
+            final_response = add_self_corrections(final_response)
+            final_response = add_human_errors(final_response)
+            final_response = get_mood_based_response(final_response, user_id)
+            final_response = add_natural_question(final_response, user_id)
+            final_response = add_natural_ending(final_response)
+        else:
+            # Для агрессивного стиля добавляем восклицания
+            final_response = final_response.replace('.', '!').replace('?', '!')
         
         if should_ask_question() and style not in ['aggressive', 'angry']:
             question = generate_conversation_starter(user_id)
@@ -835,8 +944,20 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Настроение: {context_data['mood']}
 • Имя использовано: {context_data['name_used_count']} раз
 • Глубина беседы: {context_data['conversation_depth']}
+• Матерных слов: {context_data.get('mat_count', 0)}
 """
     await update.message.reply_text(stats_text)
+
+async def reset_mat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сброс счетчика матерных слов"""
+    user_id = update.message.from_user.id
+    user_context = get_user_context(user_id)
+    
+    if 'mat_count' in user_context:
+        user_context['mat_count'] = 0
+        await update.message.reply_text("Счетчик матерных слов сброшен. Давай общаться культурно!")
+    else:
+        await update.message.reply_text("У тебя и так чистая история общения! 👍")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
@@ -870,6 +991,11 @@ def main():
         ))
         
         application.add_handler(MessageHandler(
+            filters.Regex(r'^/reset_mat$'),
+            reset_mat_command
+        ))
+        
+        application.add_handler(MessageHandler(
             filters.Regex(r'^(/about|/julia|/юля|/info)$'),
             about_command
         ))
@@ -880,6 +1006,7 @@ def main():
         print("📍 Поддержка жаргона включена!")
         print("📍 Естественные паузы и эмоции!")
         print("📍 Человеческие ошибки и самоисправления!")
+        print("📍 Агрессивная реакция на матерные слова! 🚫")
         
         application.run_polling(
             drop_pending_updates=True,
