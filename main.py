@@ -689,7 +689,6 @@ def add_natural_question(response, user_id):
     
     return response
 
-
 def extract_user_info(user_id, message):
     """Извлекает информацию о пользователе"""
     context = get_user_context(user_id)
@@ -739,7 +738,6 @@ def extract_user_info(user_id, message):
             
             if noun not in context['user_info']['interests']:
                 context['user_info']['interests'].append(noun)
-
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Улучшенный обработчик сообщений"""
@@ -1326,4 +1324,5 @@ def main():
 if __name__ == "__main__":
     print("Запуск бота Юля с системой отношений...")
     main()
+
 
