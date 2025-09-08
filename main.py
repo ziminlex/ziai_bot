@@ -6,7 +6,7 @@ import asyncio
 import time
 import re
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from functools import lru_cache
@@ -59,12 +59,9 @@ BASE_SYSTEM_PROMPT = f"""
 Любишь {', '.join(JULIA_BIO['hobbies'][:2])}. 
 Твои любимые места: {', '.join(JULIA_BIO['favorite_places'][:2])}.
 Отвечай как живой человек, естественно и непринужденно. Ты общаешься в Telegram-чате.
+Используй имя собеседника только когда это уместно по контексту - для эмоционального акцента, поддержки, 
+когда обращаешься с вопросом или хочешь подчеркнуть близость. Не начинай каждое сообщение с имени.
 """
-
-# Расширенный словарь преобразования имен
-NAME_TRANSFORMATIONS = {
-    # ... (существующий словарь имен остается без изменений)
-}
 
 # Стили общения с разной температурой и промптами
 COMMUNICATION_STYLES = {
@@ -133,22 +130,22 @@ SPECIAL_RESPONSES = {
     'как тебя зовут': [
         f"Меня зовут {JULIA_BIO['name']}!",
         f"Я {JULIA_BIO['name']}, приятно познакомиться!",
-        f{JULIA_BIO['name']}, а тебя как?"
+        f"{JULIA_BIO['name']}, а тебя как?"
     ],
     'сколько тебе лет': [
         f"Мне {JULIA_BIO['age']} лет!",
-        f{JULIA_BIO['age']} уже скоро будет... время летит!",
+        f"{JULIA_BIO['age']} уже скоро будет... время летит!",
         f"А тебе сколько? Я {JULIA_BIO['age']}"
     ],
     'откуда ты': [
         f"Я из {JULIA_BIO['city']}, самого лучшего города!",
         f"Родом из {JULIA_BIO['city']}, а ты откуда?",
-        f{JULIA_BIO['city']} - мой дом родной!"
+        f"{JULIA_BIO['city']} - мой дом родной!"
     ],
     'кто ты': [
         f"Я {JULIA_BIO['name']}, {JULIA_BIO['profession'].lower()} из {JULIA_BIO['city']}!",
         f"Просто девушка {JULIA_BIO['name']}, которая любит {random.choice(JULIA_BIO['hobbies'])}",
-        f{JULIA_BIO['name']} - {JULIA_BIO['profession'].lower()}, мечтательница и немного бунтарка"
+        f"{JULIA_BIO['name']} - {JULIA_BIO['profession'].lower()}, мечтательница и немного бунтарка"
     ]
 }
 
@@ -161,7 +158,11 @@ def get_user_context(user_id):
             'user_info': {},
             'last_interaction': datetime.now(),
             'topics': [],
-            'mood': 'neutral'
+            'mood': 'neutral',
+            'name_used_count': 0,
+            'last_name_usage': None,
+            'first_interaction': True,
+            'user_name': None
         }
     return conversation_context[user_id]
 
@@ -189,6 +190,10 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     
     # Анализируем настроение
     analyze_mood(user_id, user_message)
+    
+    # Отмечаем первое взаимодействие как завершенное
+    if context['first_interaction']:
+        context['first_interaction'] = False
 
 def extract_user_info(user_id, message):
     """Извлекает информацию о пользователе из сообщений"""
@@ -235,6 +240,67 @@ def analyze_mood(user_id, message):
         context['mood'] = 'positive'
     else:
         context['mood'] = 'neutral'
+
+def should_use_name(user_id, user_name, style):
+    """Определяет, стоит ли использовать имя в ответе"""
+    context = get_user_context(user_id)
+    
+    # Всегда используем имя при первом знакомстве
+    if context['first_interaction']:
+        return True
+    
+    # Не используем имя в агрессивных стилях
+    if style in ['aggressive', 'angry']:
+        return False
+    
+    # Используем имя редко в нейтральном стиле
+    if style == 'neutral':
+        return random.random() < 0.1  # 10% вероятность
+    
+    # Чаще используем в дружественных стилях
+    if style in ['friendly', 'caring', 'flirtatious']:
+        # Проверяем, когда последний раз использовали имя
+        if context['last_name_usage']:
+            time_since_last_use = datetime.now() - context['last_name_usage']
+            if time_since_last_use < timedelta(minutes=5):
+                return False
+        
+        probability = 0.3  # 30% вероятность
+        return random.random() < probability
+    
+    return False
+
+def format_response_with_name(response, user_name, style):
+    """Форматирует ответ с именем в естественной форме"""
+    context_patterns = {
+        'friendly': [
+            f"{user_name}, {response}",
+            f"{response}, {user_name}",
+            f"Знаешь, {user_name}, {response.lower()}",
+            f"{response}... Кстати, {user_name}"
+        ],
+        'caring': [
+            f"{user_name}, {response}",
+            f"Дорогой, {response.lower()}",
+            f"{response}, {user_name}",
+            f"Понимаю, {user_name}, {response.lower()}"
+        ],
+        'flirtatious': [
+            f"{user_name}, {response}",
+            f"Милый, {response.lower()}",
+            f"{response}, {user_name}",
+            f"Знаешь, {user_name}, {response.lower()}"
+        ],
+        'neutral': [
+            f"{user_name}, {response}",
+            f"{response}, {user_name}"
+        ]
+    }
+    
+    if style in context_patterns:
+        return random.choice(context_patterns[style])
+    
+    return response
 
 def generate_conversation_starter(user_id):
     """Генерирует вопрос для поддержания беседы"""
@@ -299,6 +365,10 @@ def build_context_prompt(user_id, user_message, style):
     
     # Добавляем текущее настроение
     context_info += f"\nТекущее настроение пользователя: {context['mood']}"
+    
+    # Указываем, что имя уже известно и не нужно его постоянно использовать
+    if not context['first_interaction']:
+        context_info += "\nИмя пользователя уже известно, используй его только когда уместно по контексту."
     
     full_prompt = f"{base_prompt}{context_info}\n\nТекущее сообщение: {user_message}\n\nОтветь естественно, как живой человек. Поддержи беседу."
     
@@ -405,6 +475,33 @@ def should_process_message(user_message: str) -> bool:
     message = user_message.strip()
     return len(message) > 1 and not message.startswith('/')
 
+def extract_name_from_user(user):
+    """Умное извлечение имени пользователя"""
+    name = user.first_name or ""
+    
+    if not name and user.last_name:
+        name = user.last_name
+    elif not name and user.username:
+        name = user.username
+        if name.startswith('@'):
+            name = name[1:]
+    
+    name = name.split()[0] if name else "Незнакомец"
+    name = re.sub(r'[^a-zA-Zа-яА-ЯёЁ]', '', name)
+    
+    return name if name else "Аноним"
+
+@lru_cache(maxsize=200)
+def transform_name(base_name: str) -> str:
+    """Преобразует имя в различные формы"""
+    if not base_name or base_name.lower() in ['незнакомец', 'аноним']:
+        return random.choice(['Незнакомец', 'Аноним', 'Ты'])
+    
+    name_lower = base_name.lower().strip()
+    
+    # Для простоты вернем базовое имя
+    return base_name.capitalize()
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Основной обработчик сообщений"""
     if not should_process_message(update.message.text):
@@ -418,6 +515,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     base_name = extract_name_from_user(user)
     transformed_name = transform_name(base_name)
     
+    # Сохраняем имя пользователя в контекст
+    user_context = get_user_context(user_id)
+    user_context['user_name'] = transformed_name
+    
     # Определяем стиль общения
     style = detect_communication_style(user_message)
     
@@ -426,9 +527,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         ai_response = await call_yandex_gpt_optimized(user_id, user_message, style)
         
-        # Добавляем имя в ответ, если это уместно
-        if style in ['friendly', 'flirtatious', 'caring']:
-            final_response = f"{transformed_name}, {ai_response}"
+        # Определяем, нужно ли использовать имя
+        use_name = should_use_name(user_id, transformed_name, style)
+        
+        if use_name:
+            final_response = format_response_with_name(ai_response, transformed_name, style)
+            # Обновляем счетчик использования имени
+            user_context['name_used_count'] += 1
+            user_context['last_name_usage'] = datetime.now()
         else:
             final_response = ai_response
         
@@ -473,6 +579,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Сообщений: {len(context_data['history'])}
 • Стиль: {context_data['last_style']}
 • Настроение: {context_data['mood']}
+• Имя использовано: {context_data['name_used_count']} раз
 • В кэше: {len(request_cache)} запросов
 """
     await update.message.reply_text(stats_text)
