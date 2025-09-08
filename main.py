@@ -689,31 +689,141 @@ def add_natural_question(response, user_id):
     
     return response
 
-def add_natural_ending(response):
-    """Добавляет естественное завершение фразы"""
-    if random.random() < 0.2:
-        endings = [
-            " вот так вот.",
-            " как-то так.",
-            " примерно так.",
-            " в общем.",
-            " ну да.",
-            " в принципе."
-        ]
-        response += random.choice(endings)
-    return response
 
-def add_human_touch(response, style):
-    """Добавляет человеческие элементы в ответ"""
-    if style in EMOJIS and random.random() < 0.6:
-        emoji = random.choice(EMOJIS[style])
-        response = f"{response} {emoji}"
+def extract_user_info(user_id, message):
+    """Извлекает информацию о пользователе"""
+    context = get_user_context(user_id)
+    lower_msg = message.lower()
     
-    if random.random() < 0.2 and len(response.split()) > 5:
-        prefixes = ['Кстати,', 'Вообще,', 'Знаешь,']
-        response = f"{random.choice(prefixes)} {response.lower()}"
+    # Извлечение мест
+    places = re.findall(r'(в|из|на)\s+([А-Яа-яЁёA-Za-z\s-]{3,})', message)
+    for _, place in places:
+        if len(place) > 2 and place.lower() not in ['меня', 'тебя', 'себя', 'гитаре']:
+            if 'places' not in context['user_info']:
+                context['user_info']['places'] = []
+            if place not in context['user_info']['places']:
+                context['user_info']['places'].append(place)
     
-    return response
+    # Извлечение интересов - улучшенная версия
+    interest_patterns = [
+        r'(люблю|нравится|увлекаюсь|занимаюсь|обожаю)\s+([а-яА-ЯёЁ\s]{3,20})',
+        r'(хобби|увлечение|интерес)\s*[:-]?\s*([а-яА-ЯёЁ\s]{3,20})',
+        r'(играю|занимаюсь)\s+на\s+([а-яА-ЯёЁ]{3,15})',
+        r'(слушаю|люблю)\s+([а-яА-ЯёЁ]{3,15})\s+музыку',
+    ]
+    
+    for pattern in interest_patterns:
+        matches = re.findall(pattern, message, re.IGNORECASE)
+        for _, interest in matches:
+            interest = interest.strip()
+            if (len(interest) > 2 and 
+                interest.lower() not in ['ты', 'вы', 'мне', 'тебе', 'меня'] and
+                not any(word in interest.lower() for word in ['играю', 'люблю', 'нравится'])):
+                
+                if 'interests' not in context['user_info']:
+                    context['user_info']['interests'] = []
+                
+                # Нормализуем интерес (убираем лишние слова)
+                normalized_interest = re.sub(r'(на|в|за|под|к|по|с|со|у|о|об|от)$', '', interest.strip())
+                if normalized_interest and normalized_interest not in context['user_info']['interests']:
+                    context['user_info']['interests'].append(normalized_interest)
+    
+    # Также извлекаем существительные из сообщения как потенциальные интересы
+    nouns = re.findall(r'\b([а-яА-ЯёЁ]{4,15})\b', message)
+    for noun in nouns:
+        if (noun.lower() not in ['гитаре', 'играю', 'люблю'] and
+            len(noun) > 3 and random.random() < 0.3):
+            
+            if 'interests' not in context['user_info']:
+                context['user_info']['interests'] = []
+            
+            if noun not in context['user_info']['interests']:
+                context['user_info']['interests'].append(noun)
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Улучшенный обработчик сообщений"""
+    if not should_process_message(update.message.text):
+        return
+    
+    user = update.message.from_user
+    user_id = user.id
+    user_message = update.message.text
+    
+    # Проверка на повторный мат
+    repeated_mat_response = check_repeated_mat(user_id, user_message)
+    if repeated_mat_response:
+        await update.message.reply_text(repeated_mat_response)
+        return
+    
+    base_name = extract_name_from_user(user)
+    transformed_name = transform_name(base_name)
+    
+    user_context = get_user_context(user_id)
+    user_context['user_name'] = transformed_name
+    
+    style = detect_communication_style(user_message)
+    
+    await update.message.chat.send_action(action="typing")
+    
+    try:
+        # Для агрессивного стиля уменьшаем задержку
+        if style == 'angry':
+            await asyncio.sleep(random.uniform(0.1, 0.5))
+        else:
+            await asyncio.sleep(random.uniform(0.3, 1.2))
+        
+        if style != 'angry' and await simulate_thinking(update.message.chat):
+            await asyncio.sleep(random.uniform(0.5, 1.0))
+        
+        ai_response = await call_yandex_gpt_optimized(user_id, user_message, style)
+        
+        use_name = should_use_name(user_id, transformed_name, style)
+        
+        if use_name:
+            final_response = format_response_with_name(ai_response, transformed_name, style, user_context['relationship_level'])
+            user_context['name_used_count'] += 1
+            user_context['last_name_usage'] = datetime.now()
+        else:
+            final_response = ai_response
+        
+        # Обновляем контекст и проверяем изменение уровня отношений
+        level_changed = update_conversation_context(user_id, user_message, final_response, style)
+        
+        # Если уровень отношений изменился, добавляем соответствующую фразу
+        if level_changed:
+            level_phrase = random.choice(RELATIONSHIP_PHRASES[user_context['relationship_level']])
+            final_response = f"{level_phrase}\n\n{final_response}"
+        
+        # Для агрессивного стиля меньше человеческих украшений
+        if style != 'angry':
+            final_response = add_human_touch(final_response, style)
+            final_response = add_emotional_reaction(final_response, style)
+            final_response = add_self_corrections(final_response)
+            final_response = add_human_errors(final_response)
+            final_response = get_mood_based_response(final_response, user_id)
+            
+            # Добавляем вопрос только если в ответе его еще нет
+            if '?' not in final_response and random.random() < 0.4:
+                final_response = add_natural_question(final_response, user_id)
+            
+            final_response = add_natural_ending(final_response)
+        else:
+            # Для агрессивного стиля добавляем восклицания
+            final_response = final_response.replace('.', '!').replace('?', '!')
+        
+        # Проверяем, не содержит ли ответ уже вопрос
+        has_question = '?' in final_response
+        
+        if should_ask_question() and style not in ['aggressive', 'angry', 'hurt'] and not has_question:
+            question = generate_conversation_starter(user_id)
+            final_response += f"\n\n{question}"
+        
+        await simulate_human_typing(update.message.chat, final_response)
+        
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        await update.message.reply_text("Ой, что-то пошло не так... Давай начнем заново?")
 
 def generate_conversation_starter(user_id):
     """Генерирует вопрос для поддержания беседы"""
@@ -1216,3 +1326,4 @@ def main():
 if __name__ == "__main__":
     print("Запуск бота Юля с системой отношений...")
     main()
+
