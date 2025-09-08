@@ -600,18 +600,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Запуск бота"""
     try:
-        # Проверка на конфликт перед запуском
-        try:
-            from telegram import Bot
-            test_bot = Bot(token=TELEGRAM_BOT_TOKEN)
-            asyncio.run(test_bot.get_updates(timeout=1))
-        except Conflict:
-            print("⚠️  Обнаружен запущенный экземпляр бота!")
-            print("Остановите другие экземпляры командой: pkill -f python")
-            return
-        except:
-            pass  # Игнорируем другие ошибки при тесте
-        
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         
         application.add_error_handler(error_handler)
@@ -635,17 +623,15 @@ def main():
         print(f"📍 Имя: {JULIA_BIO['name']}, {JULIA_BIO['age']} лет, {JULIA_BIO['city']}")
         print("📍 Бот теперь печатает как человек!")
         
-        try:
-            application.run_polling(
-                drop_pending_updates=True,
-                allowed_updates=Update.ALL_TYPES,
-                close_loop=False
-            )
-        except Conflict as e:
-            print("⚠️  Ошибка: Уже запущен другой экземпляр бота!")
-            print("Остановите другие экземпляры командой: pkill -f python")
-            return
+        # Простой запуск без проверок
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES
+        )
         
+    except Conflict as e:
+        print("⚠️  Ошибка: Уже запущен другой экземпляр бота!")
+        print("Остановите другие экземпляры командой: pkill -f python")
     except Exception as e:
         logger.error(f"Startup error: {e}")
         print(f"Ошибка запуска: {e}")
@@ -653,3 +639,4 @@ def main():
 if __name__ == "__main__":
     print("Запуск бота Юля...")
     main()
+
