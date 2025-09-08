@@ -45,8 +45,8 @@ CACHE_TIMEOUT = 300
 conversation_context = {}
 
 # Настройки человеческого поведения
-MIN_TYPING_DELAY = 0.02
-MAX_TYPING_DELAY = 0.08
+MIN_TYPING_DELAY = 0.03
+MAX_TYPING_DELAY = 0.09
 
 # Биография Юли
 JULIA_BIO = {
@@ -174,13 +174,46 @@ CONVERSATION_STARTERS = [
     "Фильмы или сериалы какие-то смотришь?",
 ]
 
+# Естественные вопросы-уточнения
+NATURAL_QUESTIONS = [
+    "Кстати,",
+    "А вот еще что интересно:",
+    "Слушай, а",
+    "Кстати, вот что я подумала:",
+    "А вообще,",
+    "Знаешь, что еще?",
+    "Вот еще вопрос:",
+    "А кстати,"
+]
+
+# Фразы для размышления
+THINKING_PHRASES = [
+    "Хм... дай подумать...",
+    "Так-с... интересный вопрос...",
+    "Мда... сложновато...",
+    "Давай подумаем вместе...",
+    "Интересно... а ведь...",
+    "Знаешь... я тут подумала...",
+    "Вообще... если разобраться...",
+    "На самом деле... "
+]
+
 # Эмодзи для разных стилей
 EMOJIS = {
-    'friendly': ['😊', '🙂', '👍', '👋'],
-    'sarcastic': ['😏', '😅', '🤔', '🙄'],
-    'flirtatious': ['😘', '😉', '💕', '🥰'],
-    'caring': ['🤗', '❤️', '💝', '☺️'],
-    'neutral': ['🙂', '👍', '👌', '💭']
+    'friendly': ['😊', '🙂', '👍', '👋', '🌟'],
+    'sarcastic': ['😏', '😅', '🤔', '🙄', '😆'],
+    'flirtatious': ['😘', '😉', '💕', '🥰', '😊'],
+    'caring': ['🤗', '❤️', '💝', '☺️', '✨'],
+    'neutral': ['🙂', '👍', '👌', '💭', '📝'],
+    'technical': ['🤓', '💻', '📊', '🔍', '📚']
+}
+
+# Эмоциональные реакции
+EMOTIONAL_REACTIONS = {
+    'surprise': ['Ого!', 'Вау!', 'Ничего себе!', 'Вот это да!', 'Ух ты!'],
+    'confusion': ['Странно...', 'Не поняла...', 'Что-то я запуталась...', 'Как так?'],
+    'excitement': ['Круто!', 'Здорово!', 'Восхитительно!', 'Как интересно!'],
+    'sympathy': ['Мне жаль...', 'Сочувствую...', 'Понимаю тебя...', 'Это тяжело...']
 }
 
 # Специальные ответы на частые вопросы
@@ -246,7 +279,8 @@ def get_user_context(user_id):
             'last_name_usage': None,
             'first_interaction': True,
             'user_name': None,
-            'typing_speed': random.uniform(0.03, 0.06)
+            'typing_speed': random.uniform(0.03, 0.06),
+            'conversation_depth': 0
         }
     return conversation_context[user_id]
 
@@ -266,6 +300,7 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     
     context['last_style'] = style
     context['last_interaction'] = datetime.now()
+    context['conversation_depth'] += 1
     
     extract_user_info(user_id, user_message)
     analyze_mood(user_id, user_message)
@@ -286,7 +321,7 @@ def extract_user_info(user_id, message):
             if place not in context['user_info']['places']:
                 context['user_info']['places'].append(place)
     
-    interest_keywords = ['люблю', 'нравится', 'увлекаюсь', 'хobби', 'занимаюсь']
+    interest_keywords = ['люблю', 'нравится', 'увлекаюсь', 'хобби', 'занимаюсь']
     for keyword in interest_keywords:
         if keyword in lower_msg:
             words = message.split()
@@ -303,8 +338,8 @@ def analyze_mood(user_id, message):
     context = get_user_context(user_id)
     lower_msg = message.lower()
     
-    positive_words = ['хорошо', 'отлично', 'рад', 'счастлив', 'люблю', 'нравится']
-    negative_words = ['плохо', 'грустно', 'устал', 'бесит', 'ненавижу', 'злой']
+    positive_words = ['хорошо', 'отлично', 'рад', 'счастлив', 'люблю', 'нравится', 'прекрасно']
+    negative_words = ['плохо', 'грустно', 'устал', 'бесит', 'ненавижу', 'злой', 'сердит']
     
     positive_count = sum(1 for word in positive_words if word in lower_msg)
     negative_count = sum(1 for word in negative_words if word in lower_msg)
@@ -332,51 +367,141 @@ def process_slang(message):
     
     return processed_msg
 
-def should_use_name(user_id, user_name, style):
-    """Определяет, стоит ли использовать имя в ответе"""
-    context = get_user_context(user_id)
-    
-    if context['first_interaction']:
+async def simulate_thinking(chat):
+    """Симулирует процесс размышления"""
+    if random.random() < 0.4:
+        thinking_phrase = random.choice(THINKING_PHRASES)
+        await chat.send_action(action="typing")
+        await asyncio.sleep(random.uniform(1.0, 2.5))
+        await chat.send_message(thinking_phrase)
+        await asyncio.sleep(random.uniform(0.5, 1.5))
         return True
-    
-    if style in ['aggressive', 'angry']:
-        return False
-    
-    if style == 'neutral':
-        return random.random() < 0.1
-    
-    if style in ['friendly', 'caring', 'flirtatious']:
-        if context['last_name_usage']:
-            time_since_last_use = datetime.now() - context['last_name_usage']
-            if time_since_last_use < timedelta(minutes=5):
-                return False
-        return random.random() < 0.3
-    
     return False
 
-def format_response_with_name(response, user_name, style):
-    """Форматирует ответ с именем"""
-    context_patterns = {
-        'friendly': [
-            f"{user_name}, {response}",
-            f"{response}, {user_name}",
-            f"Знаешь, {user_name}, {response.lower()}"
+def add_self_corrections(response):
+    """Добавляет самоисправления как у человека"""
+    if random.random() < 0.15 and len(response) > 20:
+        corrections = [
+            " вернее,",
+            " точнее,",
+            " то есть,",
+            " в смысле,",
+            " точнее говоря,"
+        ]
+        words = response.split()
+        if len(words) > 5:
+            insert_pos = random.randint(2, len(words) - 3)
+            words.insert(insert_pos, random.choice(corrections))
+            return " ".join(words)
+    return response
+
+def add_emotional_reaction(response, style):
+    """Добавляет эмоциональную реакцию"""
+    if random.random() < 0.3:
+        if style == 'friendly':
+            reaction = random.choice(EMOTIONAL_REACTIONS['excitement'])
+        elif style == 'caring':
+            reaction = random.choice(EMOTIONAL_REACTIONS['sympathy'])
+        elif style == 'sarcastic':
+            reaction = random.choice(EMOTIONAL_REACTIONS['surprise'])
+        else:
+            reaction = random.choice(EMOTIONAL_REACTIONS['surprise'])
+        
+        return f"{reaction} {response}"
+    return response
+
+def add_human_errors(text):
+    """Добавляет человеческие ошибки в текст"""
+    if random.random() < 0.08:
+        errors = [
+            lambda t: t.replace(' что ', ' чо ').replace(' Что ', ' Чо '),
+            lambda t: t.replace(' конечно ', ' конэчно '),
+            lambda t: t.replace(' сейчас ', ' щас '),
+            lambda t: t.replace(' чтобы ', ' чтоб '),
+            lambda t: t + random.choice([' вроде', ' типа', ' как бы']),
+            lambda t: t.replace(' тогда ', ' тода '),
+            lambda t: t.replace(' его ', ' егоо ')[:-1],
+            lambda t: t.replace(' меня ', ' мене '),
+        ]
+        text = random.choice(errors)(text)
+    return text
+
+async def simulate_human_typing(chat, message):
+    """Улучшенная симуляция человеческой печати"""
+    await chat.send_action(action="typing")
+    
+    typing_speed = random.uniform(MIN_TYPING_DELAY, MAX_TYPING_DELAY)
+    total_time = len(message) * typing_speed
+    total_time = min(total_time, 4.0)
+    
+    pause_probability = 0.2
+    if random.random() < pause_probability:
+        total_time += random.uniform(0.5, 1.5)
+        await asyncio.sleep(total_time * 0.7)
+        await chat.send_action(action="typing")
+        await asyncio.sleep(total_time * 0.3)
+    else:
+        await asyncio.sleep(total_time)
+    
+    await chat.send_message(message)
+
+def add_natural_question(response, user_id):
+    """Добавляет естественный вопрос"""
+    context = get_user_context(user_id)
+    
+    if random.random() < 0.25 and len(response) > 10:
+        question_starter = random.choice(NATURAL_QUESTIONS)
+        
+        if 'interests' in context['user_info'] and context['user_info']['interests']:
+            interest = random.choice(context['user_info']['interests'])
+            question = f"{question_starter} как твои дела с {interest}?"
+        elif 'places' in context['user_info'] and context['user_info']['places']:
+            place = random.choice(context['user_info']['places'])
+            question = f"{question_starter} часто бываешь в {place}?"
+        else:
+            question = f"{question_starter} {random.choice(CONVERSATION_STARTERS).lower()}"
+        
+        return f"{response}\n\n{question}"
+    
+    return response
+
+def get_mood_based_response(response, user_id):
+    """Корректирует ответ based on текущего настроения"""
+    context = get_user_context(user_id)
+    
+    mood_modifiers = {
+        'positive': [
+            "Это же просто замечательно!",
+            "Как здорово!",
+            "Восхитительно!",
+            "Я рада за тебя!"
         ],
-        'caring': [
-            f"{user_name}, {response}",
-            f"{response}, {user_name}",
-            f"Понимаю, {user_name}, {response.lower()}"
-        ],
-        'flirtatious': [
-            f"{user_name}, {response}",
-            f"Милый, {response.lower()}",
-            f"Знаешь, {user_name}, {response.lower()}"
+        'negative': [
+            "Мне жаль это слышать...",
+            "Понимаю, как тебе тяжело...",
+            "Сочувствую...",
+            "Это действительно непросто..."
         ]
     }
     
-    if style in context_patterns:
-        return random.choice(context_patterns[style])
+    if context['mood'] in mood_modifiers and random.random() < 0.4:
+        modifier = random.choice(mood_modifiers[context['mood']])
+        return f"{modifier} {response}"
     
+    return response
+
+def add_natural_ending(response):
+    """Добавляет естественное завершение фразы"""
+    if random.random() < 0.2:
+        endings = [
+            " вот так вот.",
+            " как-то так.",
+            " примерно так.",
+            " в общем.",
+            " ну да.",
+            " в принципе."
+        ]
+        response += random.choice(endings)
     return response
 
 def add_human_touch(response, style):
@@ -390,17 +515,6 @@ def add_human_touch(response, style):
         response = f"{random.choice(prefixes)} {response.lower()}"
     
     return response
-
-async def simulate_human_typing(chat, message):
-    """Симулирует человеческую печать"""
-    await chat.send_action(action="typing")
-    
-    typing_time = len(message) * random.uniform(MIN_TYPING_DELAY, MAX_TYPING_DELAY)
-    typing_time = min(typing_time, 3.0)
-    
-    await asyncio.sleep(typing_time)
-    
-    await chat.send_message(message)
 
 def generate_conversation_starter(user_id):
     """Генерирует вопрос для поддержания беседы"""
@@ -589,8 +703,55 @@ def transform_name(base_name: str) -> str:
     
     return base_name.capitalize()
 
+def should_use_name(user_id, user_name, style):
+    """Определяет, стоит ли использовать имя в ответе"""
+    context = get_user_context(user_id)
+    
+    if context['first_interaction']:
+        return True
+    
+    if style in ['aggressive', 'angry']:
+        return False
+    
+    if style == 'neutral':
+        return random.random() < 0.1
+    
+    if style in ['friendly', 'caring', 'flirtatious']:
+        if context['last_name_usage']:
+            time_since_last_use = datetime.now() - context['last_name_usage']
+            if time_since_last_use < timedelta(minutes=5):
+                return False
+        return random.random() < 0.3
+    
+    return False
+
+def format_response_with_name(response, user_name, style):
+    """Форматирует ответ с именем"""
+    context_patterns = {
+        'friendly': [
+            f"{user_name}, {response}",
+            f"{response}, {user_name}",
+            f"Знаешь, {user_name}, {response.lower()}"
+        ],
+        'caring': [
+            f"{user_name}, {response}",
+            f"{response}, {user_name}",
+            f"Понимаю, {user_name}, {response.lower()}"
+        ],
+        'flirtatious': [
+            f"{user_name}, {response}",
+            f"Милый, {response.lower()}",
+            f"Знаешь, {user_name}, {response.lower()}"
+        ]
+    }
+    
+    if style in context_patterns:
+        return random.choice(context_patterns[style])
+    
+    return response
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Основной обработчик сообщений"""
+    """Улучшенный обработчик сообщений"""
     if not should_process_message(update.message.text):
         return
     
@@ -609,7 +770,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action(action="typing")
     
     try:
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(random.uniform(0.3, 1.2))
+        
+        if await simulate_thinking(update.message.chat):
+            await asyncio.sleep(random.uniform(0.5, 1.0))
         
         ai_response = await call_yandex_gpt_optimized(user_id, user_message, style)
         
@@ -622,7 +786,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             final_response = ai_response
         
+        # Добавляем все человеческие улучшения
         final_response = add_human_touch(final_response, style)
+        final_response = add_emotional_reaction(final_response, style)
+        final_response = add_self_corrections(final_response)
+        final_response = add_human_errors(final_response)
+        final_response = get_mood_based_response(final_response, user_id)
+        final_response = add_natural_question(final_response, user_id)
+        final_response = add_natural_ending(final_response)
         
         if should_ask_question() and style not in ['aggressive', 'angry']:
             question = generate_conversation_starter(user_id)
@@ -663,6 +834,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Стиль: {context_data['last_style']}
 • Настроение: {context_data['mood']}
 • Имя использовано: {context_data['name_used_count']} раз
+• Глубина беседы: {context_data['conversation_depth']}
 """
     await update.message.reply_text(stats_text)
 
@@ -704,8 +876,10 @@ def main():
         
         print(f"🤖 {JULIA_BIO['name']} запущена и готова к общению!")
         print(f"📍 Имя: {JULIA_BIO['name']}, {JULIA_BIO['age']} лет, {JULIA_BIO['city']}")
-        print("📍 Бот теперь печатает как человек!")
+        print("📍 Бот теперь печатает как настоящий человек!")
         print("📍 Поддержка жаргона включена!")
+        print("📍 Естественные паузы и эмоции!")
+        print("📍 Человеческие ошибки и самоисправления!")
         
         application.run_polling(
             drop_pending_updates=True,
