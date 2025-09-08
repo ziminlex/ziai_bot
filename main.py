@@ -479,56 +479,6 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     
     return level_changed
 
-def extract_user_info(user_id, message):
-     """Извлекает информацию о пользователе"""
-    context = get_user_context(user_id)
-    lower_msg = message.lower()
-    
-    # Извлечение мест
-    places = re.findall(r'(в|из|на)\s+([А-Яа-яЁёA-Za-z\s-]{3,})', message)
-    for _, place in places:
-        if len(place) > 2 and place.lower() not in ['меня', 'тебя', 'себя', 'гитаре']:
-            if 'places' not in context['user_info']:
-                context['user_info']['places'] = []
-            if place not in context['user_info']['places']:
-                context['user_info']['places'].append(place)
-    
-    # Извлечение интересов - улучшенная версия
-    interest_patterns = [
-        r'(люблю|нравится|увлекаюсь|занимаюсь|обожаю)\s+([а-яА-ЯёЁ\s]{3,20})',
-        r'(хобби|увлечение|интерес)\s*[:-]?\s*([а-яА-ЯёЁ\s]{3,20})',
-        r'(играю|занимаюсь)\s+на\s+([а-яА-ЯёЁ]{3,15})',
-        r'(слушаю|люблю)\s+([а-яА-ЯёЁ]{3,15})\s+музыку',
-    ]
-    
-    for pattern in interest_patterns:
-        matches = re.findall(pattern, message, re.IGNORECASE)
-        for _, interest in matches:
-            interest = interest.strip()
-            if (len(interest) > 2 and 
-                interest.lower() not in ['ты', 'вы', 'мне', 'тебе', 'меня'] and
-                not any(word in interest.lower() for word in ['играю', 'люблю', 'нравится'])):
-                
-                if 'interests' not in context['user_info']:
-                    context['user_info']['interests'] = []
-                
-                # Нормализуем интерес (убираем лишние слова)
-                normalized_interest = re.sub(r'(на|в|за|под|к|по|с|со|у|о|об|от)$', '', interest.strip())
-                if normalized_interest and normalized_interest not in context['user_info']['interests']:
-                    context['user_info']['interests'].append(normalized_interest)
-    
-    # Также извлекаем существительные из сообщения как потенциальные интересы
-    nouns = re.findall(r'\b([а-яА-ЯёЁ]{4,15})\b', message)
-    for noun in nouns:
-        if (noun.lower() not in ['гитаре', 'играю', 'люблю'] and
-            len(noun) > 3 and random.random() < 0.3):
-            
-            if 'interests' not in context['user_info']:
-                context['user_info']['interests'] = []
-            
-            if noun not in context['user_info']['interests']:
-                context['user_info']['interests'].append(noun)
-
 def analyze_mood(user_id, message):
     """Анализирует настроение пользователя"""
     context = get_user_context(user_id)
@@ -1324,5 +1274,6 @@ def main():
 if __name__ == "__main__":
     print("Запуск бота Юля с системой отношений...")
     main()
+
 
 
