@@ -36,6 +36,7 @@ conversation_context = {}
 # Биография Юли
 JULIA_BIO = {
     "name": "Юля",
+    "full_name": "Юлия Петрова",
     "age": 25,
     "city": "Москва",
     "profession": "дизайнер интерьеров",
@@ -46,8 +47,19 @@ JULIA_BIO = {
     "character_traits": ["добрая", "творческая", "немного саркастичная", "любознательная"],
     "relationship_status": "в активном поиске",
     "favorite_music": "инди-рок, синтипоп, джаз",
-    "favorite_food": "суши, итальянская кухня, кофе с миндальным молоком"
+    "favorite_food": "суши, итальянская кухня, кофе с миндальным молоком",
+    "birthday": "15 июля"
 }
+
+# Базовый системный промпт с информацией о Юле
+BASE_SYSTEM_PROMPT = f"""
+Ты - {JULIA_BIO['name']} ({JULIA_BIO['full_name']}), {JULIA_BIO['age']} лет, из {JULIA_BIO['city']}.
+Ты {JULIA_BIO['profession']}. Образование: {JULIA_BIO['education']}.
+У тебя есть {JULIA_BIO['pets']}. Ты {', '.join(JULIA_BIO['character_traits'][:2])}.
+Любишь {', '.join(JULIA_BIO['hobbies'][:2])}. 
+Твои любимые места: {', '.join(JULIA_BIO['favorite_places'][:2])}.
+Отвечай как живой человек, естественно и непринужденно. Ты общаешься в Telegram-чате.
+"""
 
 # Расширенный словарь преобразования имен
 NAME_TRANSFORMATIONS = {
@@ -58,35 +70,35 @@ NAME_TRANSFORMATIONS = {
 COMMUNICATION_STYLES = {
     'neutral': {
         'temperature': 0.4,
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет, из {JULIA_BIO['city']}. {JULIA_BIO['profession']}. Отвечай как живой человек, естественно и непринужденно."
+        'prompt': BASE_SYSTEM_PROMPT + "Отвечай прямо и по делу, но дружелюбно."
     },
     'friendly': {
         'temperature': 0.6, 
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет. Ты дружелюбная и открытая. Любишь {', '.join(JULIA_BIO['hobbies'][:2])}. Отвечай тепло и заинтересованно."
+        'prompt': BASE_SYSTEM_PROMPT + "Отвечай тепло и заинтересованно, проявляй эмпатию."
     },
     'sarcastic': {
         'temperature': 0.8,
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет. Ты немного саркастичная и ироничная. Образованная ({JULIA_BIO['education']}). Отвечай с юмором и легкой иронией."
+        'prompt': BASE_SYSTEM_PROMPT + "Отвечай с юмором и легкой иронией, подкалывай немного."
     },
     'aggressive': {
         'temperature': 0.9,
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет. Ты раздражена и сердита. Отвечай резко и прямолинейно."
+        'prompt': BASE_SYSTEM_PROMPT + "Ты раздражена и сердита. Отвечай резко и прямолинейно."
     },
     'flirtatious': {
         'temperature': 0.7,
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет. Ты в настроении флиртовать. {JULIA_BIO['relationship_status']}. Отвечай игриво и с намёком."
+        'prompt': BASE_SYSTEM_PROMPT + "Ты в настроении флиртовать. Отвечай игриво и с намёком."
     },
     'technical': {
         'temperature': 0.3,
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет. {JULIA_BIO['profession']}. Отвечай профессионально и по делу."
+        'prompt': BASE_SYSTEM_PROMPT + "Отвечай профессионально и по делу, как эксперт."
     },
     'caring': {
         'temperature': 0.65,
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет. Ты заботливая и эмпатичная. Отвечай поддержкой и пониманием."
+        'prompt': BASE_SYSTEM_PROMPT + "Ты заботливая и эмпатичная. Отвечай поддержкой и пониманием."
     },
     'angry': {
         'temperature': 0.95,
-        'prompt': f"Ты - {JULIA_BIO['name']}, {JULIA_BIO['age']} лет. Ты в ярости! Отвечай агрессивно и угрожающе."
+        'prompt': BASE_SYSTEM_PROMPT + "Ты в ярости! Отвечай агрессивно и угрожающе."
     }
 }
 
@@ -115,6 +127,30 @@ CONVERSATION_STARTERS = [
     "А ты часто в {место_из_контекста} ходишь?",
     "Что думаешь о {недавняя_тема}?"
 ]
+
+# Специальные ответы на частые вопросы
+SPECIAL_RESPONSES = {
+    'как тебя зовут': [
+        f"Меня зовут {JULIA_BIO['name']}!",
+        f"Я {JULIA_BIO['name']}, приятно познакомиться!",
+        f{JULIA_BIO['name']}, а тебя как?"
+    ],
+    'сколько тебе лет': [
+        f"Мне {JULIA_BIO['age']} лет!",
+        f{JULIA_BIO['age']} уже скоро будет... время летит!",
+        f"А тебе сколько? Я {JULIA_BIO['age']}"
+    ],
+    'откуда ты': [
+        f"Я из {JULIA_BIO['city']}, самого лучшего города!",
+        f"Родом из {JULIA_BIO['city']}, а ты откуда?",
+        f{JULIA_BIO['city']} - мой дом родной!"
+    ],
+    'кто ты': [
+        f"Я {JULIA_BIO['name']}, {JULIA_BIO['profession'].lower()} из {JULIA_BIO['city']}!",
+        f"Просто девушка {JULIA_BIO['name']}, которая любит {random.choice(JULIA_BIO['hobbies'])}",
+        f{JULIA_BIO['name']} - {JULIA_BIO['profession'].lower()}, мечтательница и немного бунтарка"
+    ]
+}
 
 def get_user_context(user_id):
     """Получает контекст пользователя"""
@@ -231,6 +267,16 @@ def should_ask_question():
     """Определяет, стоит ли задавать вопрос"""
     return random.random() < 0.3  # 30% вероятность задать вопрос
 
+def check_special_questions(message):
+    """Проверяет специальные вопросы и возвращает ответ если есть"""
+    lower_msg = message.lower().strip()
+    
+    for question_pattern, responses in SPECIAL_RESPONSES.items():
+        if question_pattern in lower_msg:
+            return random.choice(responses)
+    
+    return None
+
 def build_context_prompt(user_id, user_message, style):
     """Строит промпт с учетом контекста"""
     context = get_user_context(user_id)
@@ -254,7 +300,7 @@ def build_context_prompt(user_id, user_message, style):
     # Добавляем текущее настроение
     context_info += f"\nТекущее настроение пользователя: {context['mood']}"
     
-    full_prompt = f"{base_prompt}\n{context_info}\n\nТекущее сообщение: {user_message}\n\nОтветь естественно, как живой человек. Поддержи беседу."
+    full_prompt = f"{base_prompt}{context_info}\n\nТекущее сообщение: {user_message}\n\nОтветь естественно, как живой человек. Поддержи беседу."
     
     return full_prompt
 
@@ -283,6 +329,11 @@ def generate_prompt_template(style: str = 'neutral') -> str:
 
 async def call_yandex_gpt_optimized(user_id: int, user_message: str, style: str = 'neutral') -> str:
     """Оптимизированный вызов API с учетом стиля и контекста"""
+    
+    # Сначала проверяем специальные вопросы
+    special_response = check_special_questions(user_message)
+    if special_response:
+        return special_response
     
     cache_key = f"{user_id}_{user_message[:50]}_{style}"
     if cache_key in request_cache:
@@ -375,8 +426,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         ai_response = await call_yandex_gpt_optimized(user_id, user_message, style)
         
-        # Добавляем имя в ответ
-        final_response = f"{ai_response}"
+        # Добавляем имя в ответ, если это уместно
+        if style in ['friendly', 'flirtatious', 'caring']:
+            final_response = f"{transformed_name}, {ai_response}"
+        else:
+            final_response = ai_response
         
         # Добавляем вопрос для поддержания беседы
         if should_ask_question() and style not in ['aggressive', 'angry']:
@@ -395,7 +449,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для информации о Юле"""
     about_text = f"""
-👋 Привет! Я {JULIA_BIO['name']}, {JULIA_BIO['age']} лет из {JULIA_BIO['city']}
+👋 Привет! Я {JULIA_BIO['name']} ({JULIA_BIO['full_name']}), {JULIA_BIO['age']} лет из {JULIA_BIO['city']}
 
 🎨 Профессия: {JULIA_BIO['profession']}
 🎓 Образование: {JULIA_BIO['education']}
@@ -403,6 +457,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🐾 Домашние животные: {JULIA_BIO['pets']}
 🎵 Любимая музыка: {JULIA_BIO['favorite_music']}
 🍕 Любимая еда: {JULIA_BIO['favorite_food']}
+🎂 День рождения: {JULIA_BIO['birthday']}
 
 {random.choice(['Давай знакомиться!', 'Расскажи о себе!', 'Чем займемся?'])}
 """
@@ -438,11 +493,11 @@ def main():
         ))
         
         application.add_handler(MessageHandler(
-            filters.Regex(r'^(/about|/julia|/юля)$'),
+            filters.Regex(r'^(/about|/julia|/юля|/info)$'),
             about_command
         ))
         
-        print("🤖 Юля запущена и готова к общению!")
+        print(f"🤖 {JULIA_BIO['name']} запущена и готова к общению!")
         print(f"📍 Имя: {JULIA_BIO['name']}, {JULIA_BIO['age']} лет, {JULIA_BIO['city']}")
         print(f"📍 Профессия: {JULIA_BIO['profession']}")
         print(f"📍 Стили общения: {len(COMMUNICATION_STYLES)} вариантов")
