@@ -13,6 +13,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from telegram.error import Conflict
 from functools import lru_cache
+from enum import Enum
 
 # Настройка логирования
 logging.basicConfig(
@@ -48,6 +49,14 @@ conversation_context = {}
 MIN_TYPING_DELAY = 0.03
 MAX_TYPING_DELAY = 0.09
 
+# Уровни отношений
+class RelationshipLevel(Enum):
+    STRANGER = 0        # Незнакомец
+    ACQUAINTANCE = 1    # Знакомый
+    FRIEND = 2          # Друг
+    CLOSE_FRIEND = 3    # Близкий друг
+    BEST_FRIEND = 4     # Лучший друг
+
 # Биография Юли
 JULIA_BIO = {
     "name": "Юля",
@@ -63,7 +72,14 @@ JULIA_BIO = {
     "relationship_status": "в активном поиске",
     "favorite_music": "инди-рок, синтипоп, джаз",
     "favorite_food": "суши, итальянская кухня, кофе с миндальным молоком",
-    "birthday": "15 июля"
+    "birthday": "15 июля",
+    "traits": {
+        "forgiveness": 0.7,       # Способность прощать (0-1)
+        "sensitivity": 0.8,       # Чувствительность к обидам
+        "openness": 0.6,          # Открытость новым людям
+        "loyalty": 0.9,           # Верность друзьям
+        "temper": 0.4            # Вспыльчивость
+    }
 }
 
 # Базовый системный промпт с информацией о Юле
@@ -73,7 +89,7 @@ BASE_SYSTEM_PROMPT = f"""
 У тебя есть {JULIA_BIO['pets']}. Ты {', '.join(JULIA_BIO['character_traits'][:2])}.
 Любишь {', '.join(JULIA_BIO['hobbies'][:2])}. 
 
-Ты современная девушка, понимаешь молодежный сленг и жаргон, но сама говоришь достаточно культурно.
+Ты современная девушка, понимаешь молодежный сланг и жаргон, но сама говоришь достаточно культурно.
 Можешь понять неформальные выражения и ответить на них адекватно, без ханжества, но и без пошлости.
 Если тебе задают вопросы интимного характера - отвечай с юмором или тактично уходи от темы.
 
@@ -125,7 +141,7 @@ MAT_WORDS = [
     'заебал', 'заебать', 'заебись', 'уебище',
     'мудак', 'мудозвон', 'мудачина',
     'падла', 'падлюка', 'гандон', 'гондон',
-    'долбоёб', 'долбаёб', 'долбоеб',
+    'долбоёб', 'долбаёб', 'dolboeb',
     'сука', 'сучара', 'сучка',
     'выебок', 'выебываться',
     'трахать', 'оттраханный',
@@ -174,6 +190,22 @@ COMMUNICATION_STYLES = {
         Покажи, что ты не потерпишь хамства и неуважения.
         Требуй извинений и уважительного отношения.
         """
+    },
+    'hurt': {
+        'temperature': 0.75,
+        'prompt': BASE_SYSTEM_PROMPT + """
+        Тебя обидели. Ты чувствуешь боль и разочарование. 
+        Отвечай сдержанно, покажи что тебе неприятно.
+        Можешь быть немного холодной и отстраненной.
+        """
+    },
+    'affectionate': {
+        'temperature': 0.8,
+        'prompt': BASE_SYSTEM_PROMPT + """
+        Ты чувствуешь теплые чувства к собеседнику. 
+        Отвечай нежно, с заботой и вниманием.
+        Покажи что ценишь этого человека.
+        """
     }
 }
 
@@ -185,7 +217,9 @@ STYLE_TRIGGERS = {
     'flirtatious': ['💋', '❤️', '😘', 'люблю', 'красив', 'секс', 'мил', 'дорог', 'симпатия'],
     'technical': ['код', 'програм', 'техни', 'алгоритм', 'баз', 'sql', 'python', 'дизайн'],
     'caring': ['грустн', 'плохо', 'один', 'помоги', 'совет', 'поддерж', 'тяжело'],
-    'angry': ['ненависть', 'убью', 'убить', 'ненавижу', 'терпеть', 'бесить', 'злость']
+    'angry': MAT_WORDS,
+    'hurt': ['обидел', 'обидно', 'больно', 'предал', 'обманул', 'разочаровал'],
+    'affectionate': ['люблю', 'нравишься', 'скучаю', 'дорогой', 'милый', 'любимый']
 }
 
 # Вопросы для поддержания беседы
@@ -212,18 +246,6 @@ NATURAL_QUESTIONS = [
     "А кстати,"
 ]
 
-# Фразы для размышления
-THINKING_PHRASES = [
-    "Хм... дай подумать...",
-    "Так-с... интересный вопрос...",
-    "Мда... сложновато...",
-    "Давай подумаем вместе...",
-    "Интересно... а ведь...",
-    "Знаешь... я тут подумала...",
-    "Вообще... если разобраться...",
-    "На самом деле... "
-]
-
 # Эмодзи для разных стилей
 EMOJIS = {
     'friendly': ['😊', '🙂', '👍', '👋', '🌟'],
@@ -231,7 +253,9 @@ EMOJIS = {
     'flirtatious': ['😘', '😉', '💕', '🥰', '😊'],
     'caring': ['🤗', '❤️', '💝', '☺️', '✨'],
     'neutral': ['🙂', '👍', '👌', '💭', '📝'],
-    'technical': ['🤓', '💻', '📊', '🔍', '📚']
+    'technical': ['🤓', '💻', '📊', '🔍', '📚'],
+    'hurt': ['😔', '😢', '😞', '💔', '🥺'],
+    'affectionate': ['💖', '🥰', '😍', '💘', '💓']
 }
 
 # Эмоциональные реакции
@@ -239,7 +263,8 @@ EMOTIONAL_REACTIONS = {
     'surprise': ['Ого!', 'Вау!', 'Ничего себе!', 'Вот это да!', 'Ух ты!'],
     'confusion': ['Странно...', 'Не поняла...', 'Что-то я запуталась...', 'Как так?'],
     'excitement': ['Круто!', 'Здорово!', 'Восхитительно!', 'Как интересно!'],
-    'sympathy': ['Мне жаль...', 'Сочувствую...', 'Понимаю тебя...', 'Это тяжело...']
+    'sympathy': ['Мне жаль...', 'Сочувствую...', 'Понимаю тебя...', 'Это тяжело...'],
+    'hurt': ['Мне больно это слышать...', 'Обидно...', 'Не ожидала от тебя...', 'Расстроилась...']
 }
 
 # Специальные ответы на частые вопросы
@@ -264,32 +289,6 @@ SPECIAL_RESPONSES = {
         f"Просто девушка {JULIA_BIO['name']}, которая любит {random.choice(JULIA_BIO['hobbies'])}",
         f"{JULIA_BIO['name']} - {JULIA_BIO['profession'].lower()}, мечтательница и немного бунтарка"
     ],
-    'сру': [
-        "Поняла тебя! Не задерживайся там слишком долго 😊",
-        "Ясно, иди делай свои дела! Удачи в этом нелегком деле 😄",
-        "Окей, поняла! Возвращайся поскорее 👍"
-    ],
-    'писать': [
-        "Тогда беги быстрее! Не терпи 😊",
-        "Понимаю, это дело не ждет! Удачи в уборной 🚽",
-        "Срочно в туалет? Беги, не стесняйся! 😄"
-    ],
-    'туалет': [
-        "Нужно в туалет? Иди, не стесняйся! 😊",
-        "Поняла, туалетные дела важны! Удачи 🚽",
-        "Беги быстрее, это дело не терпит! 👍"
-    ],
-    'по маленькому': [
-        "А, понятно! Срочно в уборную? Беги 😊",
-        "Маленькие дела тоже важны! Удачи 🚽",
-        "Ясно, по маленькому! Не задерживайся там 👍"
-    ],
-    'по большому': [
-        "Серьезные дела! Возьми с собой телефон почитать 😄",
-        "По большому - это важно! Удачи в этом непростом деле 🚽",
-        "Поняла! Не торопись, делай все качественно 😊"
-    ],
-    # Агрессивные ответы на мат
     'мат_реакция': [
         "А ну прекрати материться! Я не намерена это терпеть!",
         "Что за похабщина? Веди себя прилично!",
@@ -302,13 +301,35 @@ SPECIAL_RESPONSES = {
         "Я не буду терпеть такой язык! Веди себя прилично!",
         "Хамство и мат - не лучший способ общения! Прекрати!"
     ],
-    # Ответы на конкретные матерные слова
-    'блять': ["Опять матом разговариваешь? Совсем совесть потерял?"],
-    'бля': ["Хватит материться! Выражайся нормально!"],
-    'хуй': ["Что за похабщина? Веди себя прилично!"],
-    'пизда': ["Прекрати нецензурно выражаться! Это омерзительно!"],
-    'ебал': ["Хватит мата! Я не намерена это слушать!"],
-    'сука': ["Перестань материться! Веди себя достойно!"]
+}
+
+# Фразы для разных уровней отношений
+RELATIONSHIP_PHRASES = {
+    RelationshipLevel.STRANGER: [
+        "Привет! Мы только познакомились, давай узнаем друг друга получше.",
+        "Рада познакомиться! Расскажи немного о себе.",
+        "Привет! Я всегда рада новым знакомствам."
+    ],
+    RelationshipLevel.ACQUAINTANCE: [
+        "Привет! Как твои дела?",
+        "Рада тебя видеть! Что новенького?",
+        "Привет! Как прошел день?"
+    ],
+    RelationshipLevel.FRIEND: [
+        "Привет, друг! 😊 Как ты?",
+        "О, привет! Соскучилась по нашему общению!",
+        "Привет! Как твои успехи?"
+    ],
+    RelationshipLevel.CLOSE_FRIEND: [
+        "Привет, дорогой! 💖 Как настроение?",
+        "О, мой любимый человечек! Соскучилась!",
+        "Приветик! Как ты там, все хорошо?"
+    ],
+    RelationshipLevel.BEST_FRIEND: [
+        "Привет, лучший! 🥰 Как мой самый близкий друг?",
+        "О, наконец-то ты! Я уже начала скучать!",
+        "Привет, родной! 💕 Как твои дела?"
+    ]
 }
 
 def get_user_context(user_id):
@@ -327,9 +348,107 @@ def get_user_context(user_id):
             'user_name': None,
             'typing_speed': random.uniform(0.03, 0.06),
             'conversation_depth': 0,
-            'mat_count': 0
+            'mat_count': 0,
+            'relationship_level': RelationshipLevel.STRANGER,
+            'relationship_score': 0,
+            'trust_level': 0,
+            'offense_count': 0,
+            'last_offense': None,
+            'affection_level': 0,
+            'messages_count': 0,
+            'positive_interactions': 0,
+            'negative_interactions': 0
         }
     return conversation_context[user_id]
+
+def update_relationship_level(user_id, message_style, message_content):
+    """Обновляет уровень отношений"""
+    context = get_user_context(user_id)
+    lower_msg = message_content.lower()
+    
+    # Базовые очки за сообщение
+    base_points = 1
+    
+    # Модификаторы в зависимости от стиля
+    style_modifiers = {
+        'friendly': 2,
+        'caring': 3,
+        'affectionate': 4,
+        'flirtatious': 3,
+        'neutral': 1,
+        'sarcastic': 0,
+        'technical': 0,
+        'aggressive': -5,
+        'angry': -8,
+        'hurt': -3
+    }
+    
+    # Бонусы за позитивные слова
+    positive_words = ['спасибо', 'благодар', 'нравишься', 'люблю', 'скучаю', 'дорогой', 'милый']
+    negative_words = MAT_WORDS + ['дурак', 'идиот', 'тупой', 'ненавижу', 'отвратит']
+    
+    points = base_points + style_modifiers.get(message_style, 0)
+    
+    # Добавляем бонусы/штрафы за слова
+    for word in positive_words:
+        if word in lower_msg:
+            points += 2
+    
+    for word in negative_words:
+        if word in lower_msg:
+            points -= 3
+    
+    # Обновляем счет
+    context['relationship_score'] += points
+    context['messages_count'] += 1
+    
+    if points > 0:
+        context['positive_interactions'] += 1
+    elif points < 0:
+        context['negative_interactions'] += 1
+    
+    # Определяем уровень отношений
+    score = context['relationship_score']
+    
+    if score >= 100:
+        new_level = RelationshipLevel.BEST_FRIEND
+        context['affection_level'] = min(100, context['affection_level'] + 3)
+    elif score >= 60:
+        new_level = RelationshipLevel.CLOSE_FRIEND
+        context['affection_level'] = min(100, context['affection_level'] + 2)
+    elif score >= 30:
+        new_level = RelationshipLevel.FRIEND
+        context['affection_level'] = min(100, context['affection_level'] + 1)
+    elif score >= 10:
+        new_level = RelationshipLevel.ACQUAINTANCE
+    else:
+        new_level = RelationshipLevel.STRANGER
+    
+    # Уровень доверия основан на положительных взаимодействиях
+    if context['messages_count'] > 0:
+        context['trust_level'] = (context['positive_interactions'] / context['messages_count']) * 100
+    
+    # Обновляем уровень отношений если изменился
+    if new_level != context['relationship_level']:
+        context['relationship_level'] = new_level
+        return True
+    
+    return False
+
+def get_relationship_modifier(user_id):
+    """Возвращает модификатор для промпта based on уровня отношений"""
+    context = get_user_context(user_id)
+    level = context['relationship_level']
+    
+    modifiers = {
+        RelationshipLevel.STRANGER: "Мы только что познакомились. Будь вежливой, но сдержанной.",
+        RelationshipLevel.ACQUAINTANCE: "Мы знакомы немного. Можно быть немного более открытой.",
+        RelationshipLevel.FRIEND: "Мы друзья. Можно общаться более непринужденно и доверительно.",
+        RelationshipLevel.CLOSE_FRIEND: "Мы близкие друзья. Можно быть очень открытой и эмоциональной.",
+        RelationshipLevel.BEST_FRIEND: "Мы лучшие друзья. Можно быть полностью собой, очень открытой и эмоциональной."
+    }
+    
+    return modifiers[level]
 
 def update_conversation_context(user_id, user_message, bot_response, style):
     """Обновляет контекст беседы"""
@@ -349,17 +468,23 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     context['last_interaction'] = datetime.now()
     context['conversation_depth'] += 1
     
+    # Обновляем уровень отношений
+    level_changed = update_relationship_level(user_id, style, user_message)
+    
     extract_user_info(user_id, user_message)
     analyze_mood(user_id, user_message)
     
     if context['first_interaction']:
         context['first_interaction'] = False
+    
+    return level_changed
 
 def extract_user_info(user_id, message):
     """Извлекает информацию о пользователе"""
     context = get_user_context(user_id)
     lower_msg = message.lower()
     
+    # Извлечение мест
     places = re.findall(r'(в|из|на)\s+([А-Яа-яЁёA-Za-z\s-]{3,})', message)
     for _, place in places:
         if len(place) > 2 and place.lower() not in ['меня', 'тебя', 'себя']:
@@ -368,25 +493,27 @@ def extract_user_info(user_id, message):
             if place not in context['user_info']['places']:
                 context['user_info']['places'].append(place)
     
-    interest_keywords = ['люблю', 'нравится', 'увлекаюсь', 'хобби', 'занимаюсь']
+    # Извлечение интересов
+    interest_keywords = ['люблю', 'нравится', 'увлекаюсь', 'хобби', 'занимаюсь', 'любимый', 'любимая']
     for keyword in interest_keywords:
         if keyword in lower_msg:
             words = message.split()
             for i, word in enumerate(words):
                 if word.lower() == keyword and i + 1 < len(words):
                     interest = words[i + 1]
-                    if 'interests' not in context['user_info']:
-                        context['user_info']['interests'] = []
-                    if interest not in context['user_info']['interests']:
-                        context['user_info']['interests'].append(interest)
+                    if len(interest) > 2 and interest.lower() not in ['ты', 'вы', 'мне']:
+                        if 'interests' not in context['user_info']:
+                            context['user_info']['interests'] = []
+                        if interest not in context['user_info']['interests']:
+                            context['user_info']['interests'].append(interest)
 
 def analyze_mood(user_id, message):
     """Анализирует настроение пользователя"""
     context = get_user_context(user_id)
     lower_msg = message.lower()
     
-    positive_words = ['хорошо', 'отлично', 'рад', 'счастлив', 'люблю', 'нравится', 'прекрасно']
-    negative_words = ['плохо', 'грустно', 'устал', 'бесит', 'ненавижу', 'злой', 'сердит']
+    positive_words = ['хорошо', 'отлично', 'рад', 'счастлив', 'люблю', 'нравится', 'прекрасно', 'замечательно']
+    negative_words = ['плохо', 'грустно', 'устал', 'бесит', 'ненавижу', 'злой', 'сердит', 'отвратительно']
     
     positive_count = sum(1 for word in positive_words if word in lower_msg)
     negative_count = sum(1 for word in negative_words if word in lower_msg)
@@ -415,12 +542,9 @@ def process_slang(message):
     return processed_msg
 
 async def simulate_thinking(chat):
-    """Симулирует процесс размышления"""
-    if random.random() < 0.4:
-        thinking_phrase = random.choice(THINKING_PHRASES)
+    """Симулирует процесс размышления (упрощенная версия)"""
+    if random.random() < 0.2:
         await chat.send_action(action="typing")
-        await asyncio.sleep(random.uniform(1.0, 2.5))
-        await chat.send_message(thinking_phrase)
         await asyncio.sleep(random.uniform(0.5, 1.5))
         return True
     return False
@@ -449,8 +573,8 @@ def add_emotional_reaction(response, style):
             reaction = random.choice(EMOTIONAL_REACTIONS['excitement'])
         elif style == 'caring':
             reaction = random.choice(EMOTIONAL_REACTIONS['sympathy'])
-        elif style == 'sarcastic':
-            reaction = random.choice(EMOTIONAL_REACTIONS['surprise'])
+        elif style == 'hurt':
+            reaction = random.choice(EMOTIONAL_REACTIONS['hurt'])
         else:
             reaction = random.choice(EMOTIONAL_REACTIONS['surprise'])
         
@@ -568,7 +692,7 @@ def generate_conversation_starter(user_id):
     context = get_user_context(user_id)
     
     if not context['history']:
-        return random.choice(CONVERSATION_STARTERS)
+        return random.choice(RELATIONSHIP_PHRASES[context['relationship_level']])
     
     if 'interests' in context['user_info'] and context['user_info']['interests']:
         interest = random.choice(context['user_info']['interests'])
@@ -596,6 +720,8 @@ def check_repeated_mat(user_id, message):
     
     if mat_count > 0:
         context['mat_count'] = context.get('mat_count', 0) + mat_count
+        context['offense_count'] += 1
+        context['last_offense'] = datetime.now()
         
         # Эскалация агрессии при повторном мате
         if context['mat_count'] >= 3:
@@ -612,37 +738,13 @@ def check_special_questions(message):
     # Проверка на матерные слова
     for mat_word in MAT_WORDS:
         if mat_word in lower_msg:
-            # Для конкретных матерных слов
-            if mat_word in ['блять', 'блядь']:
-                return random.choice(SPECIAL_RESPONSES['блять'])
-            elif mat_word in ['бля']:
-                return random.choice(SPECIAL_RESPONSES['бля'])
-            elif mat_word in ['хуй', 'хуёвый', 'хуйня']:
-                return random.choice(SPECIAL_RESPONSES['хуй'])
-            elif mat_word in ['пизда', 'пиздец']:
-                return random.choice(SPECIAL_RESPONSES['пизда'])
-            elif mat_word in ['ебал', 'ебать', 'ёбнутый']:
-                return random.choice(SPECIAL_RESPONSES['ебал'])
-            elif mat_word in ['сука', 'сучка']:
-                return random.choice(SPECIAL_RESPONSES['сука'])
-            else:
-                # Общая реакция на мат
-                return random.choice(SPECIAL_RESPONSES['мат_реакция'])
+            return random.choice(SPECIAL_RESPONSES['мат_реакция'])
     
-    # Остальная логика проверки
+    # Проверка на специальные вопросы
     for question_pattern, responses in SPECIAL_RESPONSES.items():
         if (question_pattern in lower_msg and 
-            question_pattern not in ['мат_реакция', 'блять', 'бля', 'хуй', 'пизда', 'ебал', 'сука']):
+            question_pattern != 'мат_реакция'):
             return random.choice(responses)
-    
-    for slang_word in SLANG_DICTIONARY:
-        if slang_word in lower_msg:
-            if slang_word in ['сру', 'писать', 'по маленькому', 'по большому', 'ссать']:
-                return random.choice([
-                    "Поняла тебя! Не задерживайся там слишком долго 😊",
-                    "Ясно, иди делай свои дела! Удачи 👍",
-                    "Окей, поняла! Возвращайся поскорее 😄"
-                ])
     
     return None
 
@@ -650,10 +752,12 @@ def build_context_prompt(user_id, user_message, style):
     """Строит промпт с учетом контекста"""
     context = get_user_context(user_id)
     base_prompt = COMMUNICATION_STYLES[style]['prompt']
+    relationship_modifier = get_relationship_modifier(user_id)
     
-    context_info = ""
+    context_info = f"{relationship_modifier}\n\n"
+    
     if context['history']:
-        context_info += "\nПредыдущие сообщения:\n"
+        context_info += "Предыдущие сообщения:\n"
         for msg in context['history'][-3:]:
             context_info += f"Пользователь: {msg['user']}\nТы: {msg['bot']}\n"
     
@@ -664,6 +768,11 @@ def build_context_prompt(user_id, user_message, style):
                 context_info += f"\n{key}: {', '.join(value[:3])}"
     
     context_info += f"\nТекущее настроение пользователя: {context['mood']}"
+    context_info += f"\nУровень отношений: {context['relationship_level'].name}"
+    context_info += f"\nУровень доверия: {context['trust_level']:.1f}%"
+    
+    if context['offense_count'] > 0:
+        context_info += f"\nПользователь обижал тебя {context['offense_count']} раз"
     
     if not context['first_interaction']:
         context_info += "\nИмя пользователя уже известно, используй его только когда уместно."
@@ -685,10 +794,6 @@ def detect_communication_style(message: str) -> str:
     
     if any(word in lower_message for word in ['грустн', 'плохо', 'одинок']):
         return 'caring'
-    if any(word in lower_message for word in ['злой', 'бесить', 'ненависть']):
-        return 'angry'
-    if '?' in message and len(message) < 20:
-        return 'friendly'
     
     return 'neutral'
 
@@ -805,45 +910,57 @@ def should_use_name(user_id, user_name, style):
     if context['first_interaction']:
         return True
     
-    if style in ['aggressive', 'angry']:
+    if style in ['aggressive', 'angry', 'hurt']:
         return False
     
-    if style == 'neutral':
-        return random.random() < 0.1
+    # Чаще использовать имя для близких отношений
+    relationship_factor = {
+        RelationshipLevel.STRANGER: 0.1,
+        RelationshipLevel.ACQUAINTANCE: 0.2,
+        RelationshipLevel.FRIEND: 0.4,
+        RelationshipLevel.CLOSE_FRIEND: 0.6,
+        RelationshipLevel.BEST_FRIEND: 0.8
+    }
     
-    if style in ['friendly', 'caring', 'flirtatious']:
-        if context['last_name_usage']:
-            time_since_last_use = datetime.now() - context['last_name_usage']
-            if time_since_last_use < timedelta(minutes=5):
-                return False
-        return random.random() < 0.3
+    probability = relationship_factor[context['relationship_level']]
     
-    return False
+    if context['last_name_usage']:
+        time_since_last_use = datetime.now() - context['last_name_usage']
+        if time_since_last_use < timedelta(minutes=2):
+            probability *= 0.5
+    
+    return random.random() < probability
 
-def format_response_with_name(response, user_name, style):
+def format_response_with_name(response, user_name, style, relationship_level):
     """Форматирует ответ с именем"""
-    context_patterns = {
-        'friendly': [
+    patterns = {
+        RelationshipLevel.STRANGER: [
+            f"{response}",
+            f"{user_name}, {response}",
+        ],
+        RelationshipLevel.ACQUAINTANCE: [
+            f"{user_name}, {response}",
+            f"{response}, {user_name}",
+        ],
+        RelationshipLevel.FRIEND: [
             f"{user_name}, {response}",
             f"{response}, {user_name}",
             f"Знаешь, {user_name}, {response.lower()}"
         ],
-        'caring': [
+        RelationshipLevel.CLOSE_FRIEND: [
             f"{user_name}, {response}",
-            f"{response}, {user_name}",
-            f"Понимаю, {user_name}, {response.lower()}"
+            f"Дорогой, {response.lower()}",
+            f"Знаешь, {user_name}, {response.lower()}"
         ],
-        'flirtatious': [
+        RelationshipLevel.BEST_FRIEND: [
             f"{user_name}, {response}",
-            f"Милый, {response.lower()}",
+            f"Родной, {response.lower()}",
+            f"Лучший, {response.lower()}",
             f"Знаешь, {user_name}, {response.lower()}"
         ]
     }
     
-    if style in context_patterns:
-        return random.choice(context_patterns[style])
-    
-    return response
+    return random.choice(patterns[relationship_level])
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Улучшенный обработчик сообщений"""
@@ -885,11 +1002,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         use_name = should_use_name(user_id, transformed_name, style)
         
         if use_name:
-            final_response = format_response_with_name(ai_response, transformed_name, style)
+            final_response = format_response_with_name(ai_response, transformed_name, style, user_context['relationship_level'])
             user_context['name_used_count'] += 1
             user_context['last_name_usage'] = datetime.now()
         else:
             final_response = ai_response
+        
+        # Обновляем контекст и проверяем изменение уровня отношений
+        level_changed = update_conversation_context(user_id, user_message, final_response, style)
+        
+        # Если уровень отношений изменился, добавляем соответствующую фразу
+        if level_changed:
+            level_phrase = random.choice(RELATIONSHIP_PHRASES[user_context['relationship_level']])
+            final_response = f"{level_phrase}\n\n{final_response}"
         
         # Для агрессивного стиля меньше человеческих украшений
         if style != 'angry':
@@ -904,11 +1029,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Для агрессивного стиля добавляем восклицания
             final_response = final_response.replace('.', '!').replace('?', '!')
         
-        if should_ask_question() and style not in ['aggressive', 'angry']:
+        if should_ask_question() and style not in ['aggressive', 'angry', 'hurt']:
             question = generate_conversation_starter(user_id)
             final_response += f"\n\n{question}"
-        
-        update_conversation_context(user_id, user_message, final_response, style)
         
         await simulate_human_typing(update.message.chat, final_response)
         
@@ -939,12 +1062,16 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     stats_text = f"""
 📊 Статистика нашей беседы:
-• Сообщений: {len(context_data['history'])}
+• Сообщений: {context_data['messages_count']}
+• Уровень отношений: {context_data['relationship_level'].name}
+• Счет отношений: {context_data['relationship_score']}
+• Уровень доверия: {context_data['trust_level']:.1f}%
+• Уровень привязанности: {context_data['affection_level']}
+• Положительных взаимодействий: {context_data['positive_interactions']}
+• Отрицательных взаимодействий: {context_data['negative_interactions']}
+• Обид: {context_data['offense_count']}
 • Стиль: {context_data['last_style']}
 • Настроение: {context_data['mood']}
-• Имя использовано: {context_data['name_used_count']} раз
-• Глубина беседы: {context_data['conversation_depth']}
-• Матерных слов: {context_data.get('mat_count', 0)}
 """
     await update.message.reply_text(stats_text)
 
@@ -955,9 +1082,36 @@ async def reset_mat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if 'mat_count' in user_context:
         user_context['mat_count'] = 0
-        await update.message.reply_text("Счетчик матерных слов сброшен. Давай общаться культурно!")
+        user_context['offense_count'] = 0
+        await update.message.reply_text("Счетчик матерных слов и обид сброшен. Давай общаться культурно!")
     else:
         await update.message.reply_text("У тебя и так чистая история общения! 👍")
+
+async def relationship_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для просмотра уровня отношений"""
+    user_id = update.message.from_user.id
+    context_data = get_user_context(user_id)
+    
+    level_descriptions = {
+        RelationshipLevel.STRANGER: "Мы только познакомились",
+        RelationshipLevel.ACQUAINTANCE: "Мы знакомы",
+        RelationshipLevel.FRIEND: "Мы друзья",
+        RelationshipLevel.CLOSE_FRIEND: "Мы близкие друзья",
+        RelationshipLevel.BEST_FRIEND: "Мы лучшие друзья!"
+    }
+    
+    relation_text = f"""
+💞 Уровень наших отношений: {context_data['relationship_level'].name}
+{level_descriptions[context_data['relationship_level']]}
+
+📈 Прогресс: {context_data['relationship_score']} очков
+🤝 Доверие: {context_data['trust_level']:.1f}%
+❤️ Привязанность: {context_data['affection_level']}
+
+Положительных взаимодействий: {context_data['positive_interactions']}
+Отрицательных: {context_data['negative_interactions']}
+"""
+    await update.message.reply_text(relation_text)
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
@@ -1000,13 +1154,17 @@ def main():
             about_command
         ))
         
+        application.add_handler(MessageHandler(
+            filters.Regex(r'^(/relationship|/отношения|/уровень)$'),
+            relationship_command
+        ))
+        
         print(f"🤖 {JULIA_BIO['name']} запущена и готова к общению!")
         print(f"📍 Имя: {JULIA_BIO['name']}, {JULIA_BIO['age']} лет, {JULIA_BIO['city']}")
-        print("📍 Бот теперь печатает как настоящий человек!")
-        print("📍 Поддержка жаргона включена!")
-        print("📍 Естественные паузы и эмоции!")
-        print("📍 Человеческие ошибки и самоисправления!")
-        print("📍 Агрессивная реакция на матерные слова! 🚫")
+        print("📍 Система уровней отношений: Незнакомец → Знакомый → Друг → Близкий друг → Лучший друг")
+        print("📍 Реалистичная модель эмоций: обида, привязанность, доверие")
+        print("📍 Динамическое изменение поведения based on уровня отношений")
+        print("📍 Убраны фразы для размышления - более естественное общение")
         
         application.run_polling(
             drop_pending_updates=True,
@@ -1021,5 +1179,5 @@ def main():
         print(f"Ошибка запуска: {e}")
 
 if __name__ == "__main__":
-    print("Запуск бота Юля...")
+    print("Запуск бота Юля с системой отношений...")
     main()
