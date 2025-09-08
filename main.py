@@ -480,7 +480,7 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     return level_changed
 
 def extract_user_info(user_id, message):
-    """Извлекает информацию о пользователе"""
+     """Извлекает информацию о пользователе"""
     context = get_user_context(user_id)
     lower_msg = message.lower()
     
@@ -528,90 +528,6 @@ def extract_user_info(user_id, message):
             
             if noun not in context['user_info']['interests']:
                 context['user_info']['interests'].append(noun)
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Улучшенный обработчик сообщений"""
-    if not should_process_message(update.message.text):
-        return
-    
-    user = update.message.from_user
-    user_id = user.id
-    user_message = update.message.text
-    
-    # Проверка на повторный мат
-    repeated_mat_response = check_repeated_mat(user_id, user_message)
-    if repeated_mat_response:
-        await update.message.reply_text(repeated_mat_response)
-        return
-    
-    base_name = extract_name_from_user(user)
-    transformed_name = transform_name(base_name)
-    
-    user_context = get_user_context(user_id)
-    user_context['user_name'] = transformed_name
-    
-    style = detect_communication_style(user_message)
-    
-    await update.message.chat.send_action(action="typing")
-    
-    try:
-        # Для агрессивного стиля уменьшаем задержку
-        if style == 'angry':
-            await asyncio.sleep(random.uniform(0.1, 0.5))
-        else:
-            await asyncio.sleep(random.uniform(0.3, 1.2))
-        
-        if style != 'angry' and await simulate_thinking(update.message.chat):
-            await asyncio.sleep(random.uniform(0.5, 1.0))
-        
-        ai_response = await call_yandex_gpt_optimized(user_id, user_message, style)
-        
-        use_name = should_use_name(user_id, transformed_name, style)
-        
-        if use_name:
-            final_response = format_response_with_name(ai_response, transformed_name, style, user_context['relationship_level'])
-            user_context['name_used_count'] += 1
-            user_context['last_name_usage'] = datetime.now()
-        else:
-            final_response = ai_response
-        
-        # Обновляем контекст и проверяем изменение уровня отношений
-        level_changed = update_conversation_context(user_id, user_message, final_response, style)
-        
-        # Если уровень отношений изменился, добавляем соответствующую фразу
-        if level_changed:
-            level_phrase = random.choice(RELATIONSHIP_PHRASES[user_context['relationship_level']])
-            final_response = f"{level_phrase}\n\n{final_response}"
-        
-        # Для агрессивного стиля меньше человеческих украшений
-        if style != 'angry':
-            final_response = add_human_touch(final_response, style)
-            final_response = add_emotional_reaction(final_response, style)
-            final_response = add_self_corrections(final_response)
-            final_response = add_human_errors(final_response)
-            final_response = get_mood_based_response(final_response, user_id)
-            
-            # Добавляем вопрос только если в ответе его еще нет
-            if '?' not in final_response and random.random() < 0.4:
-                final_response = add_natural_question(final_response, user_id)
-            
-            final_response = add_natural_ending(final_response)
-        else:
-            # Для агрессивного стиля добавляем восклицания
-            final_response = final_response.replace('.', '!').replace('?', '!')
-        
-        # Проверяем, не содержит ли ответ уже вопрос
-        has_question = '?' in final_response
-        
-        if should_ask_question() and style not in ['aggressive', 'angry', 'hurt'] and not has_question:
-            question = generate_conversation_starter(user_id)
-            final_response += f"\n\n{question}"
-        
-        await simulate_human_typing(update.message.chat, final_response)
-        
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        await update.message.reply_text("Ой, что-то пошло не так... Давай начнем заново?")
 
 def analyze_mood(user_id, message):
     """Анализирует настроение пользователя"""
@@ -722,7 +638,8 @@ async def simulate_human_typing(chat, message):
     
     await chat.send_message(message)
 
-"""Добавляет естественный вопрос"""
+def add_natural_question(response, user_id):
+    """Добавляет естественный вопрос"""
     context = get_user_context(user_id)
     
     if random.random() < 0.25 and len(response) > 10:
@@ -1134,13 +1051,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             final_response = add_self_corrections(final_response)
             final_response = add_human_errors(final_response)
             final_response = get_mood_based_response(final_response, user_id)
-            final_response = add_natural_question(final_response, user_id)
+            
+            # Добавляем вопрос только если в ответе его еще нет
+            if '?' not in final_response and random.random() < 0.4:
+                final_response = add_natural_question(final_response, user_id)
+            
             final_response = add_natural_ending(final_response)
         else:
             # Для агрессивного стиля добавляем восклицания
             final_response = final_response.replace('.', '!').replace('?', '!')
         
-        if should_ask_question() and style not in ['aggressive', 'angry', 'hurt']:
+        # Проверяем, не содержит ли ответ уже вопрос
+        has_question = '?' in final_response
+        
+        if should_ask_question() and style not in ['aggressive', 'angry', 'hurt'] and not has_question:
             question = generate_conversation_starter(user_id)
             final_response += f"\n\n{question}"
         
@@ -1292,4 +1216,3 @@ def main():
 if __name__ == "__main__":
     print("Запуск бота Юля с системой отношений...")
     main()
-
