@@ -61,6 +61,7 @@ BASE_SYSTEM_PROMPT = f"""
 Отвечай как живой человек, естественно и непринужденно. Ты общаешься в Telegram-чате.
 Используй имя собеседника только когда это уместно по контексту - для эмоционального акцента, поддержки, 
 когда обращаешься с вопросом или хочешь подчеркнуть близость. Не начинай каждое сообщение с имени.
+Используй естественные паузы, смайлики, опечатки (иногда), разговорные выражения.
 """
 
 # Стили общения с разной температурой и промптами
@@ -105,7 +106,7 @@ STYLE_TRIGGERS = {
     'sarcastic': ['😂', '🤣', '😆', 'лол', 'хаха', 'шутк', 'прикол', 'смешно'],
     'aggressive': ['дурак', 'идиот', 'тупой', 'гад', 'ненавижу', 'злой', 'сердит', 'бесишь'],
     'flirtatious': ['💋', '❤️', '😘', 'люблю', 'красив', 'секс', 'мил', 'дорог', 'симпатия'],
-    'technical': ['код', 'програм', 'техни', 'алгоритм', 'баз', 'sql', 'python', 'дизайн'],
+    'technical': ['код', 'програм', 'техни', 'алgorithm', 'баз', 'sql', 'python', 'дизайн'],
     'caring': ['грустн', 'плохо', 'один', 'помоги', 'совет', 'поддерж', 'тяжело'],
     'angry': ['ненависть', 'убью', 'убить', 'ненавижу', 'терпеть', 'бесить', 'злость']
 }
@@ -149,6 +150,16 @@ SPECIAL_RESPONSES = {
     ]
 }
 
+# Эмодзи и стикеры для более живого общения
+EMOJIS = {
+    'friendly': ['😊', '🙂', '👍', '👋', '🌟'],
+    'sarcastic': ['😏', '😅', '🤔', '🙄', '😆'],
+    'flirtatious': ['😘', '😉', '💕', '🥰', '😊'],
+    'caring': ['🤗', '❤️', '💝', '☺️', '✨'],
+    'neutral': ['🙂', '👍', '👌', '💭', '📝'],
+    'technical': ['🤓', '💻', '📊', '🔍', '📚']
+}
+
 def get_user_context(user_id):
     """Получает контекст пользователя"""
     if user_id not in conversation_context:
@@ -162,7 +173,9 @@ def get_user_context(user_id):
             'name_used_count': 0,
             'last_name_usage': None,
             'first_interaction': True,
-            'user_name': None
+            'user_name': None,
+            'typing_speed': random.uniform(0.03, 0.08),  # Случайная скорость печати
+            'typing_style': random.choice(['normal', 'fast', 'thoughtful'])
         }
     return conversation_context[user_id]
 
@@ -302,6 +315,72 @@ def format_response_with_name(response, user_name, style):
     
     return response
 
+def add_human_touch(response, style):
+    """Добавляет человеческие элементы в ответ"""
+    # Добавляем эмодзи
+    if style in EMOJIS and random.random() < 0.6:  # 60% вероятность
+        emoji = random.choice(EMOJIS[style])
+        # Добавляем эмодзи в конец или начало с вероятностью
+        if random.random() < 0.7:
+            response = f"{response} {emoji}"
+        else:
+            response = f"{emoji} {response}"
+    
+    # Иногда добавляем небольшие опечатки (5% вероятность)
+    if random.random() < 0.05 and len(response) > 10:
+        words = response.split()
+        if len(words) > 2:
+            # Меняем местами две буквы в случайном слове
+            word_index = random.randint(0, len(words) - 1)
+            if len(words[word_index]) > 3:
+                word = list(words[word_index])
+                pos = random.randint(0, len(word) - 2)
+                word[pos], word[pos + 1] = word[pos + 1], word[pos]
+                words[word_index] = ''.join(word)
+                response = ' '.join(words)
+    
+    # Добавляем разговорные выражения
+    conversational_prefixes = ['Кстати,', 'Вообще,', 'Знаешь,', 'Слушай,', 'Короче,']
+    if random.random() < 0.2 and len(response.split()) > 5:  # 20% вероятность
+        response = f"{random.choice(conversational_prefixes)} {response.lower()}"
+    
+    return response
+
+def calculate_typing_time(text, user_id):
+    """Рассчитывает время печати для сообщения"""
+    context = get_user_context(user_id)
+    base_time = len(text) * context['typing_speed']
+    
+    # Добавляем случайные паузы для размышления
+    thinking_pauses = random.randint(0, 3) * 0.5
+    total_time = base_time + thinking_pauses
+    
+    # Ограничиваем максимальное время
+    return min(total_time, 5.0)  # Максимум 5 секунд
+
+async def simulate_typing(chat, typing_time):
+    """Симулирует печать пользователя"""
+    # Показываем индикатор печати
+    await chat.send_action(action="typing")
+    
+    # Ждем рассчитанное время
+    await asyncio.sleep(typing_time)
+
+async def send_message_with_delay(chat, message, user_id):
+    """Отправляет сообщение с задержкой как человек"""
+    # Рассчитываем время печати
+    typing_time = calculate_typing_time(message, user_id)
+    
+    # Симулируем печать
+    await simulate_typing(chat, typing_time)
+    
+    # Иногда делаем дополнительную паузу перед отправкой
+    if random.random() < 0.3:
+        await asyncio.sleep(random.uniform(0.1, 0.5))
+    
+    # Отправляем сообщение
+    await chat.send_message(message)
+
 def generate_conversation_starter(user_id):
     """Генерирует вопрос для поддержания беседы"""
     context = get_user_context(user_id)
@@ -370,7 +449,7 @@ def build_context_prompt(user_id, user_message, style):
     if not context['first_interaction']:
         context_info += "\nИмя пользователя уже известно, используй его только когда уместно по контексту."
     
-    full_prompt = f"{base_prompt}{context_info}\n\nТекущее сообщение: {user_message}\n\nОтветь естественно, как живой человек. Поддержи беседу."
+    full_prompt = f"{base_prompt}{context_info}\n\nТекущее сообщение: {user_message}\n\nОтветь естественно, как живой человек. Поддержи беседу. Используй разговорный стиль."
     
     return full_prompt
 
@@ -522,6 +601,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Определяем стиль общения
     style = detect_communication_style(user_message)
     
+    # Показываем, что бот печатает
     await update.message.chat.send_action(action="typing")
     
     try:
@@ -538,6 +618,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             final_response = ai_response
         
+        # Добавляем человеческие элементы
+        final_response = add_human_touch(final_response, style)
+        
         # Добавляем вопрос для поддержания беседы
         if should_ask_question() and style not in ['aggressive', 'angry']:
             question = generate_conversation_starter(user_id)
@@ -546,7 +629,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Обновляем контекст
         update_conversation_context(user_id, user_message, final_response, style)
         
-        await update.message.reply_text(final_response)
+        # Отправляем сообщение с человеческой задержкой
+        await send_message_with_delay(update.message.chat, final_response, user_id)
         
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
@@ -584,10 +668,29 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
     await update.message.reply_text(stats_text)
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    logger.error(f"Exception while handling an update: {context.error}")
+    
+    # Обработка конфликта (множественные экземпляры бота)
+    if "Conflict" in str(context.error):
+        logger.warning("Обнаружен конфликт - вероятно, запущен другой экземпляр бота")
+        return
+    
+    # Обработка других ошибок
+    try:
+        if update and update.message:
+            await update.message.reply_text("Извини, что-то пошло не так... Попробуй еще раз!")
+    except Exception as e:
+        logger.error(f"Error in error handler: {e}")
+
 def main():
     """Запуск бота"""
     try:
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        
+        # Добавляем обработчик ошибок
+        application.add_error_handler(error_handler)
         
         application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -609,13 +712,24 @@ def main():
         print(f"📍 Профессия: {JULIA_BIO['profession']}")
         print(f"📍 Стили общения: {len(COMMUNICATION_STYLES)} вариантов")
         
-        application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES
-        )
+        # Проверяем, не запущен ли уже бот
+        try:
+            application.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES,
+                close_loop=False
+            )
+        except Exception as e:
+            if "Conflict" in str(e):
+                print("⚠️  Внимание: Возможно, уже запущен другой экземпляр бота!")
+                print("Остановите другие экземпляры и перезапустите бота.")
+            raise e
         
     except Exception as e:
         logger.error(f"Startup error: {e}")
+        print(f"Ошибка запуска: {e}")
 
 if __name__ == "__main__":
+    # Проверяем, не запущен ли уже процесс
+    print("Запуск бота Юля...")
     main()
