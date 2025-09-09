@@ -260,18 +260,22 @@ class HumanConversationSimulator:
         }
     
     def _select_conversation_style(self, deep_context):
-        """Выбор стиля беседы based on контекста"""
-        mood = deep_context['emotional_arc']['current_mood']
-        pace = deep_context['conversation_rhythm']['pace']
-        
-        if mood > 0.7 and pace == 'fast':
-            return 'active'
-        elif mood < 0.3:
-            return 'reactive'
-        elif deep_context['user_patterns']['response_style'] == 'detailed':
-            return 'deep'
-        else:
-            return 'balanced'
+    """Выбор стиля беседы based on контекста"""
+    # Проверяем наличие необходимых ключей в deep_context
+    if not deep_context or 'emotional_arc' not in deep_context:
+        return 'balanced'
+    
+    mood = deep_context['emotional_arc'].get('current_mood', 0.5)
+    pace = deep_context['conversation_rhythm'].get('pace', 'medium') if 'conversation_rhythm' in deep_context else 'medium'
+    
+    if mood > 0.7 and pace == 'fast':
+        return 'active'
+    elif mood < 0.3:
+        return 'reactive'
+    elif deep_context.get('user_patterns', {}).get('response_style') == 'detailed':
+        return 'deep'
+    else:
+        return 'balanced'
     
     def _select_typing_profile(self, deep_context):
         """Выбор профиля печатания"""
@@ -863,7 +867,7 @@ class UserDatabase:
             return {}
 
 async def process_message_with_deep_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка сообщения с глубоким контекстным анализом"""
+   """Обработка сообщения с глубоким контекстным анализом"""
     try:
         user_id = update.effective_user.id
         user_message = update.message.text
@@ -906,8 +910,12 @@ async def process_message_with_deep_context(update: Update, context: ContextType
         
     except Exception as e:
         logger.error(f"Ошибка обработки сообщения: {e}")
-        await update.message.reply_text("Что-то я запуталась... Давай попробуем еще раз?")
-
+        # Более простое сообщение для новых пользователей
+        if "deep_context" in str(e):
+            await update.message.reply_text("Привет! Давай начнем общение. Расскажи, что тебя интересует?")
+        else:
+            await update.message.reply_text("Что-то я запуталась... Давай попробуем еще раз?")
+            
 def create_deep_context_prompt(message, deep_context, emotional_state, memory_reference, user_context):
     """Создание промпта с глубоким контекстом"""
     prompt = f"""
@@ -1052,6 +1060,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
