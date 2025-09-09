@@ -997,28 +997,30 @@ async def generate_ai_response(prompt, style):
 
 def main():
     """Основная функция"""
-    global user_db
-    
     # Проверка токенов
     if not TELEGRAM_BOT_TOKEN:
         logger.error("❌ TELEGRAM_BOT_TOKEN не найден!")
         return
-    
+        
+    if not all([YANDEX_API_KEY, YANDEX_FOLDER_ID]):
+        logger.error("❌ YANDEX_API_KEY или YANDEX_FOLDER_ID не найдены!")
+        return
+
     # Инициализация базы данных
-    user_db = UserDatabase()
-    
+    UserDatabase() # Инициализируем таблицы при старте
+
     # Создание приложения
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
+
     # Добавление обработчиков
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("context", context_command))
     application.add_handler(CommandHandler("memory", memory_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message_with_deep_context))
     application.add_error_handler(error_handler)
-    
+
     logger.info("🤖 Бот с глубоким контекстным анализом запускается...")
-    
+
     # Запуск бота
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
@@ -1059,4 +1061,5 @@ async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     main()
+
 
