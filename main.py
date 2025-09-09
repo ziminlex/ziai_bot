@@ -91,7 +91,9 @@ BASE_SYSTEM_PROMPT = f"""
 
 Ты современная девушка, понимаешь молодежный слан и жаргон, но сама говоришь достаточно культурно.
 Можешь понять неформальные выражения и ответить на них адекватно, без ханжества, но и без пошлости.
-Если тебе задают вопросы интимного характера - отвечай с юмором или тактично уходи от темы.
+
+ВАЖНО: Не задавай слишком много вопросов. Задавай вопросы только когда это уместно и естественно.
+Предпочитай утверждения и комментарии постоянным расспросам. Отвечай на сообщение, а не переводи разговор.
 
 Отвечай как живой человек, естественно и непринужденно. Ты общаешься в Telegram-чате.
 Используй имя собеседника только когда это уместно по контексту.
@@ -771,7 +773,7 @@ def naturalize_response(response, style, user_id):
     context = get_user_context(user_id)
     
     thinking_words = ['хм', 'ну', 'вообще', 'знаешь', 'кстати', 'в общем']
-    if random.random() < 0.3 and len(response.split()) > 5:
+    if random.random() < 0.2 and len(response.split()) > 5:
         thinking_word = random.choice(thinking_words)
         response = f"{thinking_word.capitalize()}... {response.lower()}"
     
@@ -783,10 +785,10 @@ def naturalize_response(response, style, user_id):
             response = f"{emoji} {response}"
     
     if (context['user_name'] and 
-        random.random() < 0.25 and 
+        random.random() < 0.2 and
         context['name_used_count'] < 3 and
         (context['last_name_usage'] is None or 
-         (datetime.now() - context['last_name_usage']).seconds > 60)):
+         (datetime.now() - context['last_name_usage']).seconds > 120)):
         
         name_positions = [
             f"{context['user_name']}, {response.lower()}",
@@ -798,14 +800,72 @@ def naturalize_response(response, style, user_id):
         context['name_used_count'] += 1
         context['last_name_usage'] = datetime.now()
     
-    if (random.random() < 0.4 and 
-        '?' not in response and 
-        len(response.split()) > 3):
-        
-        question_starter = random.choice(NATURAL_QUESTIONS)
-        response = f"{response} {question_starter} {random.choice(CONVERSATION_STARTERS).lower()}"
-    
     return response
+
+def should_add_question(user_id, current_response):
+    """Определяет, стоит ли добавлять вопрос к ответу"""
+    context = get_user_context(user_id)
+    
+    # Не добавляем вопросы если:
+    if len(context['history']) < 2:
+        return False
+        
+    if context['conversation_depth'] < 2:
+        return False
+        
+    if context['mood'] == 'negative':
+        return False
+        
+    if context['mat_count'] > 0:
+        return False
+        
+    if '?' in current_response:
+        return False
+        
+    # Проверяем, был ли недавно задан вопрос
+    last_messages = context['history'][-3:]
+    question_recently = any('?' in msg['bot'] for msg in last_messages)
+    if question_recently:
+        return False
+        
+    # Проверяем глубину текущей темы
+    current_topic_depth = get_conversation_depth(user_id)
+    if current_topic_depth < 2:
+        return False
+        
+    # 30% вероятность добавить вопрос в подходящих условиях
+    return random.random() < 0.3
+
+def get_contextual_question(user_id, current_message):
+    """Возвращает вопрос, уместный в текущем контексте"""
+    context = get_user_context(user_id)
+    lower_msg = current_message.lower()
+    
+    # Анализ текущего сообщения для контекстных вопросов
+    if any(word in lower_msg for word in ['гитар', 'музык', 'играть']):
+        return "какую музыку любишь играть на гитаре?"
+    
+    if any(word in lower_msg for word in ['путешеств', 'поездк', 'ездил']):
+        return "куда мечтаешь поехать в следующее путешествие?"
+    
+    if any(word in lower_msg for word in ['видео игр', 'гейм', 'играю']):
+        return "в какие игры сейчас играешь?"
+    
+    if any(word in lower_msg for word in ['работ', 'дел', 'проект']):
+        return "как продвигаются твои дела на работе/учебе?"
+    
+    if any(word in lower_msg for word in ['хобби', 'увлечен', 'занимаюсь']):
+        return "а есть что-то, что давно хотел попробовать?"
+    
+    # Общие вопросы, но более релевантные
+    general_questions = [
+        "что думаешь об этом?",
+        "как тебе такая идея?",
+        "а у тебя было что-то подобное?",
+        "как бы ты поступил на моем месте?"
+    ]
+    
+    return random.choice(general_questions)
 
 def create_prompt(user_id, message, style):
     """Создает промпт для Yandex GPT"""
@@ -907,6 +967,12 @@ async def process_message(update, context):
             response = get_fallback_response()
     
     response = naturalize_response(response, style, user_id)
+    
+    # Умное добавление вопросов только в подходящих случаях
+    if should_add_question(user_id, response):
+        question_starter = random.choice(NATURAL_QUESTIONS)
+        follow_up_question = get_contextual_question(user_id, message)
+        response = f"{response} {question_starter} {follow_up_question}"
     
     level_changed = update_conversation_context(user_id, message, response, style)
     
