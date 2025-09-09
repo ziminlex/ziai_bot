@@ -275,143 +275,99 @@ class HumanConversationSimulator:
     
     def _calculate_thinking_time(self, message, deep_context, history):
         """Время на обдумывание"""
-        base_time = random.uniform(0.5, 2.0)
-        
-        # Безопасное извлечение значений
-        emotional_arc = deep_context.get('emotional_arc', {})
-        
-        # Множители сложности
-        complexity = 1.0
-        if '?' in message:
-            complexity += 0.5
-        if len(message) > 100:
-            complexity += 0.3
-        
-        # Безопасная проверка volatility
-        volatility = emotional_arc.get('volatility', 0.1)
-        if volatility > 0.2:
-            complexity += 0.4
-        
-        # Учет истории
-        if len(history) > 5:
-            recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
-            if recent_emotional and any(m.get('emotional_score', 0.5) < 0.3 for m in recent_emotional):
+        try:
+            base_time = float(random.uniform(0.5, 2.0))
+            
+            # Безопасное извлечение значений
+            emotional_arc = deep_context.get('emotional_arc', {})
+            
+            # Множители сложности
+            complexity = 1.0
+            if '?' in message:
                 complexity += 0.5
-        
-        return base_time * complexity
+            if len(message) > 100:
+                complexity += 0.3
+            
+            # Безопасная проверка volatility
+            volatility = float(emotional_arc.get('volatility', 0.1))
+            if volatility > 0.2:
+                complexity += 0.4
+            
+            # Учет истории
+            if len(history) > 5:
+                recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
+                if recent_emotional and any(float(m.get('emotional_score', 0.5)) < 0.3 for m in recent_emotional):
+                    complexity += 0.5
+            
+            return float(base_time) * float(complexity)
+            
+        except (TypeError, ValueError) as e:
+            logger.error(f"Ошибка вычисления времени обдумывания: {e}")
+            return 1.0  # значение по умолчанию
     
     def _calculate_typing_time(self, message, profile, context):
         """Время печатания"""
-        profile_config = self.typing_profiles[profile]
-        base_time = len(message) * profile_config['base_speed']
-        
-        # Вариативность
-        variation = random.uniform(1 - profile_config['variation'], 
-                                 1 + profile_config['variation'])
-        
-        # Опыт общения (со временем печатает быстрее)
-        experience = max(0.7, 1.0 - (context.get('messages_count', 0) * 0.0005))
-        
-        return base_time * variation * experience
+        try:
+            # Получаем конфигурацию профиля
+            profile_config = self.typing_profiles.get(profile, self.typing_profiles['normal'])
+            
+            # Убеждаемся, что все значения являются числами
+            base_speed = float(profile_config.get('base_speed', 0.03))
+            variation_range = float(profile_config.get('variation', 0.8))
+            
+            # Вычисляем базовое время
+            base_time = len(message) * base_speed
+            
+            # Вариативность (гарантируем, что это число)
+            variation = random.uniform(1 - variation_range, 1 + variation_range)
+            
+            # Опыт общения (со временем печатает быстрее)
+            messages_count = int(context.get('messages_count', 0))
+            experience = max(0.7, 1.0 - (messages_count * 0.0005))
+            
+            # Умножаем только числа
+            return float(base_time) * float(variation) * float(experience)
+            
+        except (TypeError, ValueError) as e:
+            logger.error(f"Ошибка вычисления времени печатания: {e}")
+            # Возвращаем значение по умолчанию в случае ошибки
+            return len(message) * 0.03  # стандартная скорость печати
     
     async def simulate_human_response(self, message, context, history):
         """Симуляция человеческого ответа"""
-        # Анализ контекста
-        deep_context = context.get('deep_context', {})
-        
-        # Выбор стиля based on контекста
-        conversation_style = self._select_conversation_style(deep_context)
-        typing_profile = self._select_typing_profile(deep_context)
-        
-        # Время на обдумывание
-        thinking_time = self._calculate_thinking_time(message, deep_context, history)
-        if thinking_time > 0.5:
-            await asyncio.sleep(thinking_time)
-        
-        # Имитация печатания
-        typing_time = self._calculate_typing_time(message, typing_profile, context)
-        await asyncio.sleep(typing_time)
-        
-        return {
-            'thinking_time': thinking_time,
-            'typing_time': typing_time,
-            'conversation_style': conversation_style,
-            'typing_profile': typing_profile
-        }
-
-def _select_conversation_style(self, deep_context):
-    """Выбор стиля беседы based on контекста"""
-    # Проверяем наличие необходимых ключей в deep_context
-    if not deep_context or 'emotional_arc' not in deep_context:
-        return 'balanced'
-    
-    # Безопасное извлечение значений
-    emotional_arc = deep_context.get('emotional_arc', {})
-    conversation_rhythm = deep_context.get('conversation_rhythm', {})
-    user_patterns = deep_context.get('user_patterns', {})
-    
-    mood = emotional_arc.get('current_mood', 0.5)
-    pace = conversation_rhythm.get('pace', 'medium')
-    
-    if mood > 0.7 and pace == 'fast':
-        return 'active'
-    elif mood < 0.3:
-        return 'reactive'
-    elif user_patterns.get('response_style') == 'detailed':
-        return 'deep'
-    else:
-        return 'balanced'
-    
-    def _select_typing_profile(self, deep_context):
-        """Выбор профиля печатания"""
-        volatility = deep_context['emotional_arc']['volatility']
-        if volatility > 0.3:
-            return 'emotional'
-        elif deep_context['conversation_rhythm']['pace'] == 'fast':
-            return 'fast'
-        else:
-            return random.choice(['normal', 'thoughtful'])
-    
-    def _calculate_thinking_time(self, message, deep_context, history):
-        """Время на обдумывание"""
-    base_time = random.uniform(0.5, 2.0)
-    
-    # Безопасное извлечение значений
-    emotional_arc = deep_context.get('emotional_arc', {})
-    
-    # Множители сложности
-    complexity = 1.0
-    if '?' in message:
-        complexity += 0.5
-    if len(message) > 100:
-        complexity += 0.3
-    
-    # Безопасная проверка volatility
-    volatility = emotional_arc.get('volatility', 0.1)
-    if volatility > 0.2:
-        complexity += 0.4
-    
-    # Учет истории
-    if len(history) > 5:
-        recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
-        if recent_emotional and any(m.get('emotional_score', 0.5) < 0.3 for m in recent_emotional):
-            complexity += 0.5
-    
-    return base_time * complexity
-    
-    def _calculate_typing_time(self, message, profile, context):
-        """Время печатания"""
-        profile_config = self.typing_profiles[profile]
-        base_time = len(message) * profile_config['base_speed']
-        
-        # Вариативность
-        variation = random.uniform(1 - profile_config['variation'], 
-                                 1 + profile_config['variation'])
-        
-        # Опыт общения (со временем печатает быстрее)
-        experience = max(0.7, 1.0 - (context.get('messages_count', 0) * 0.0005))
-        
-        return base_time * variation * experience
+        try:
+            # Анализ контекста
+            deep_context = context.get('deep_context', {})
+            
+            # Выбор стиля based on контекста
+            conversation_style = self._select_conversation_style(deep_context)
+            typing_profile = self._select_typing_profile(deep_context)
+            
+            # Время на обдумывание
+            thinking_time = self._calculate_thinking_time(message, deep_context, history)
+            if thinking_time > 0.5:
+                await asyncio.sleep(min(thinking_time, 5.0))  # ограничиваем максимальное время
+            
+            # Имитация печатания
+            typing_time = self._calculate_typing_time(message, typing_profile, context)
+            await asyncio.sleep(min(typing_time, 3.0))  # ограничиваем максимальное время
+            
+            return {
+                'thinking_time': thinking_time,
+                'typing_time': typing_time,
+                'conversation_style': conversation_style,
+                'typing_profile': typing_profile
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка симуляции человеческого ответа: {e}")
+            # Возвращаем значения по умолчанию в случае ошибки
+            return {
+                'thinking_time': 1.0,
+                'typing_time': len(message) * 0.03,
+                'conversation_style': 'balanced',
+                'typing_profile': 'normal'
+            }
 
 class MemorySystem:
     """Система памяти и воспоминаний"""
@@ -501,8 +457,6 @@ class EmotionalIntelligence:
     
     def __init__(self):
         self.empathy_responses = self._create_empathy_responses()
-        # Убираем вызов несуществующего метода
-        # self.emotional_models = self._create_emotional_models()
     
     def _create_empathy_responses(self):
         """Создание эмпатичных ответов"""
@@ -621,6 +575,20 @@ def get_user_context(user_id: int) -> Dict[str, Any]:
     try:
         conn = sqlite3.connect("bot_users.db")
         cursor = conn.cursor()
+        
+        # Проверяем, есть ли пользователь в базе
+        cursor.execute("SELECT COUNT(*) FROM users WHERE user_id = ?", (user_id,))
+        user_exists = cursor.fetchone()[0] > 0
+        
+        if not user_exists:
+            # Создаем нового пользователя
+            cursor.execute("""
+                INSERT INTO users (user_id, created_at, last_interaction) 
+                VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, (user_id,))
+            conn.commit()
+            conn.close()
+            return {'user_id': user_id, 'history': [], 'messages_count': 0}
         
         # Получаем базовую информацию о пользователе
         cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -760,31 +728,16 @@ def save_complete_context(user_id: int, user_message: str, bot_response: str,
     except Exception as e:
         logger.error(f"Ошибка сохранения контекста для пользователя {user_id}: {e}")
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
-    user = update.effective_user
-    welcome_text = f"""
-👋 Привет, {user.first_name}!
-
-Я бот с глубоким контекстным анализом. Я запоминаю наши разговоры и стараюсь вести беседу как живой человек.
-
-Что умею:
-• Запоминать темы наших разговоров
-• Анализировать контекст беседы
-• Проявлять эмпатию и понимание
-• Вести естественную человеческую беседу
-
-Просто напиши мне что-нибудь, и мы начнем общаться!
-
-Также доступны команды:
-/context - показать текущий контекст
-/memory - показать память о беседах
-"""
-    await update.message.reply_text(welcome_text)
-
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
-    logger.error(f"Ошибка при обработке сообщения: {context.error}")
+    error = context.error
+    
+    if isinstance(error, Conflict):
+        logger.error(f"Конфликт бота: {error}")
+        # Не пытаемся отправлять сообщение пользователю при конфликте
+        return
+    
+    logger.error(f"Ошибка при обработке сообщения: {error}")
     
     if update and update.message:
         try:
@@ -967,105 +920,112 @@ async def process_message_with_deep_context(update: Update, context: ContextType
         user_context = get_user_context(user_id)
         history = user_context.get('history', [])
         
-        # Глубокий анализ контекста (обрабатываем случай, когда deep_context еще нет)
+        # Для новых пользователей используем упрощенный режим
+        if len(history) < 3:  # Первые несколько сообщений
+            # Простой ответ без глубокого анализа
+            simple_prompt = f"""Пользователь написал: "{user_message}". 
+Ответь естественно и кратко, как живой человек в начале беседы. Будь лаконичным."""
+            
+            bot_response = await generate_ai_response(simple_prompt, 'balanced')
+            
+            # Сохраняем базовое взаимодействие
+            save_complete_context(
+                user_id, 
+                user_message, 
+                bot_response, 
+                {'current_topics': {}, 'historical_topics': {}, 'emotional_arc': {}, 
+                 'conversation_rhythm': {}, 'user_patterns': {}, 'unfinished_threads': {}}, 
+                {'dominant_emotion': 'neutral', 'intensity': 0.5, 'emotional_trend': 'stable'}, 
+                {'conversation_style': 'balanced', 'typing_time': 1.0, 'thinking_time': 1.0}
+            )
+            
+            await update.message.reply_text(bot_response)
+            return
+        
+        # Для пользователей с историей - полный анализ
         deep_context = context_analyzer.extract_deep_context(user_message, history, user_context)
-        
-        # Анализ эмоционального состояния
         emotional_state = emotional_intelligence.analyze_emotional_state(user_message, history)
-        
-        # Поиск воспоминаний
         memory_reference = memory_system.create_contextual_memory(user_message, history, user_context)
         
-        # Симуляция человеческого ответа
         response_metrics = await conversation_simulator.simulate_human_response(
             user_message, user_context, history
         )
         
-        # Создание промпта с глубоким контекстом
         prompt = create_deep_context_prompt(user_message, deep_context, emotional_state, memory_reference, user_context)
-        
-        # Генерация ответа
         bot_response = await generate_ai_response(prompt, response_metrics['conversation_style'])
         
-        # Добавление эмпатии и человеческих элементов
         bot_response = emotional_intelligence.generate_empathic_response(emotional_state, bot_response)
         if memory_reference and random.random() < 0.6:
             bot_response = f"{memory_reference} {bot_response}"
         
-        # Сохранение всего контекста
         save_complete_context(user_id, user_message, bot_response, deep_context, 
                             emotional_state, response_metrics, memory_reference)
         
-        # Отправка ответа
         await update.message.reply_text(bot_response)
         
     except Exception as e:
         logger.error(f"Ошибка обработки сообщения: {e}")
-        # Более простое сообщение для новых пользователей
-        if "deep_context" in str(e):
-            # Для новых пользователей используем упрощенный ответ
-            try:
-                simple_response = await generate_ai_response(
-                    f"Пользователь написал: {user_message}. Ответь естественно и дружелюбно как живой человек.",
-                    'balanced'
-                )
-                await update.message.reply_text(simple_response)
-                
-                # Сохраняем базовое взаимодействие
-                save_complete_context(
-                    user_id, 
-                    user_message, 
-                    simple_response, 
-                    {'current_topics': {}, 'historical_topics': {}, 'emotional_arc': {}, 
-                     'conversation_rhythm': {}, 'user_patterns': {}, 'unfinished_threads': {}}, 
-                    {'dominant_emotion': 'neutral', 'intensity': 0.5, 'emotional_trend': 'stable'}, 
-                    {'conversation_style': 'balanced', 'typing_time': 1.0, 'thinking_time': 1.0}
-                )
-            except Exception as inner_e:
-                logger.error(f"Ошибка в упрощенном режиме: {inner_e}")
-                await update.message.reply_text("Привет! Давай начнем общение. Расскажи, что тебя интересует?")
-        else:
-            await update.message.reply_text("Что-то я запуталась... Давай попробуем еще раз?")
-            
+        # Простой ответ при ошибке
+        try:
+            simple_response = await generate_ai_response(
+                f"Пользователь написал: {user_message}. Ответь кратко и естественно.",
+                'balanced'
+            )
+            await update.message.reply_text(simple_response)
+        except:
+            await update.message.reply_text("Привет! Расскажи, что у тебя нового?")
+
 def create_deep_context_prompt(message, deep_context, emotional_state, memory_reference, user_context):
     """Создание промпта с глубоким контекстом"""
-    # Безопасное извлечение значений с значениями по умолчанию
-    current_topics = deep_context.get('current_topics', {})
-    historical_topics = deep_context.get('historical_topics', {})
-    conversation_rhythm = deep_context.get('conversation_rhythm', {})
-    user_patterns = deep_context.get('user_patterns', {})
-    unfinished_threads = deep_context.get('unfinished_threads', {})
+    history_length = len(user_context.get('history', []))
     
-    prompt = f"""
-Ты - опытный собеседник, который ведет естественную человеческую беседу.
+    # Для новых пользователей - более простые промпты
+    if history_length < 5:
+        return f"""
+Ты ведешь естественную беседу с человеком. Отвечай кратко и по делу.
+
+Сообщение: {message}
+Эмоциональный тон: {emotional_state.get('dominant_emotion', 'neutral')}
+
+Твой ответ (естественный, человечный, 1-2 предложения):
+"""
+    
+    # Для среднего уровня истории
+    elif history_length < 15:
+        current_topics = deep_context.get('current_topics', {})
+        return f"""
+Ты ведешь естественную беседу. Учитывай контекст, но оставайся лаконичным.
+
+Сообщение: {message}
+Текущие темы: {', '.join(list(current_topics.keys())[:2]) if current_topics else 'новый разговор'}
+Эмоции: {emotional_state.get('dominant_emotion', 'neutral')}
+
+Твой ответ (естественный, 2-3 предложения):
+"""
+    
+    # Для продвинутых пользователей - полный контекст
+    else:
+        current_topics = deep_context.get('current_topics', {})
+        historical_topics = deep_context.get('historical_topics', {})
+        conversation_rhythm = deep_context.get('conversation_rhythm', {})
+        
+        return f"""
+Ты - опытный собеседник с глубоким пониманием контекста.
 
 ТЕКУЩИЙ КОНТЕКСТ:
 - Сообщение: {message}
-- Эмоциональное состояние: {emotional_state.get('dominant_emotion', 'neutral')} (интенсивность: {emotional_state.get('intensity', 0.5):.2f})
-- Настроение: {emotional_state.get('emotional_trend', 'stable')}
-- Темп беседы: {conversation_rhythm.get('pace', 'medium')}
+- Эмоции: {emotional_state.get('dominant_emotion', 'neutral')} (интенсивность: {emotional_state.get('intensity', 0.5):.2f})
+- Темп: {conversation_rhythm.get('pace', 'medium')}
 
 ИСТОРИЯ БЕСЕДЫ:
-Текущие темы: {', '.join(list(current_topics.keys())[:3]) if current_topics else 'новый разговор'}
-Исторические темы: {', '.join(list(historical_topics.keys())[:3]) if historical_topics else 'еще нет истории'}
-Незавершенные вопросы: {len(unfinished_threads.get('user_questions', []))}
-
-ПАТТЕРНЫ ПОЛЬЗОВАТЕЛЯ:
-Стиль ответов: {user_patterns.get('response_style', 'balanced')}
-Частота вопросов: {user_patterns.get('question_frequency', 0.3):.2f}
+Текущие темы: {', '.join(list(current_topics.keys())[:3])}
+Исторические темы: {', '.join(list(historical_topics.keys())[:3])}
 
 {'ВОСПОМИНАНИЕ: ' + memory_reference if memory_reference else ''}
 
-ВЕДИ СЕБЯ КАК ЖИВОЙ ЧЕЛОВЕК:
-- Учитывай весь контекст беседы
-- Проявляй эмпатию к эмоциональному состоянию
-- Используй естественные речевые паттерны
-- Поддерживай логическую связность
-- Будь внимателен к незавершенным темам
-
-Твой ответ (естественный, человечный, контекстно-осознанный):
+ВЕДИ СЕБЯ КАК ЖИВОЙ ЧЕЛОВЕК с хорошей памятью на предыдущие разговоры.
+Твой ответ (естественный, контекстно-осознанный):
 """
-    return prompt
 
 async def generate_ai_response(prompt, style):
     """Генерация ответа с учетом стиля"""
@@ -1161,36 +1121,36 @@ def main():
     # Инициализация базы данных
     UserDatabase()
     
-    # Создание приложения
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    # Создание приложения с обработкой конфликтов
+    application = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .concurrent_updates(True)
+        .build()
+    )
     
     # Добавление обработчиков
-    application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("context", context_command))
     application.add_handler(CommandHandler("memory", memory_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message_with_deep_context))
     application.add_error_handler(error_handler)
     
-    logger.info("🤖 Бот с глубоким контекстным анализом запускается...")
+    logger.info("🤖 Бот запущен и готов к общению...")
     
-    # Запуск бота
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        # Запуск бота с обработкой конфликтов
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            close_loop=False,
+            stop_signals=None
+        )
+    except Conflict as e:
+        logger.error(f"Конфликт обнаружен: {e}")
+        logger.info("Перезапуск бота через 5 секунд...")
+        time.sleep(5)
+        main()  # Рекурсивный перезапуск
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка: {e}")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
