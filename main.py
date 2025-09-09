@@ -234,6 +234,69 @@ class HumanConversationSimulator:
             'deep': {'question_rate': 0.25, 'topic_change': 0.15, 'detail_level': 0.9}
         }
     
+    def _select_conversation_style(self, deep_context):
+        """Выбор стиля беседы based on контекста"""
+        # Проверяем наличие необходимых ключей в deep_context
+        if not deep_context or 'emotional_arc' not in deep_context:
+            return 'balanced'
+        
+        mood = deep_context['emotional_arc'].get('current_mood', 0.5)
+        pace = deep_context['conversation_rhythm'].get('pace', 'medium') if 'conversation_rhythm' in deep_context else 'medium'
+        
+        if mood > 0.7 and pace == 'fast':
+            return 'active'
+        elif mood < 0.3:
+            return 'reactive'
+        elif deep_context.get('user_patterns', {}).get('response_style') == 'detailed':
+            return 'deep'
+        else:
+            return 'balanced'
+    
+    def _select_typing_profile(self, deep_context):
+        """Выбор профиля печатания"""
+        volatility = deep_context['emotional_arc']['volatility']
+        if volatility > 0.3:
+            return 'emotional'
+        elif deep_context['conversation_rhythm']['pace'] == 'fast':
+            return 'fast'
+        else:
+            return random.choice(['normal', 'thoughtful'])
+    
+    def _calculate_thinking_time(self, message, deep_context, history):
+        """Время на обдумывание"""
+        base_time = random.uniform(0.5, 2.0)
+        
+        # Множители сложности
+        complexity = 1.0
+        if '?' in message:
+            complexity += 0.5
+        if len(message) > 100:
+            complexity += 0.3
+        if deep_context['emotional_arc']['volatility'] > 0.2:
+            complexity += 0.4
+        
+        # Учет истории
+        if len(history) > 5:
+            recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
+            if recent_emotional and any(m['emotional_score'] < 0.3 for m in recent_emotional):
+                complexity += 0.5
+        
+        return base_time * complexity
+    
+    def _calculate_typing_time(self, message, profile, context):
+        """Время печатания"""
+        profile_config = self.typing_profiles[profile]
+        base_time = len(message) * profile_config['base_speed']
+        
+        # Вариативность
+        variation = random.uniform(1 - profile_config['variation'], 
+                                 1 + profile_config['variation'])
+        
+        # Опыт общения (со временем печатает быстрее)
+        experience = max(0.7, 1.0 - (context.get('messages_count', 0) * 0.0005))
+        
+        return base_time * variation * experience
+    
     async def simulate_human_response(self, message, context, history):
         """Симуляция человеческого ответа"""
         # Анализ контекста
@@ -1087,6 +1150,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
