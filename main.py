@@ -401,23 +401,24 @@ class MemorySystem:
         
         return template.format(topic)
 
-class EmotionalIntelligence:
+lass EmotionalIntelligence:
     """Эмоциональный интеллект"""
     
     def __init__(self):
-        self.emotional_models = self._create_emotional_models()
         self.empathy_responses = self._create_empathy_responses()
-
-    def _create_emotional_models(self):
-        """Создание эмоциональных моделей (заглушка)"""
-        return {
-            'joy': {'threshold': 0.6, 'response_intensity': 0.8},
-            'sadness': {'threshold': 0.5, 'response_intensity': 0.7},
-            'anger': {'threshold': 0.4, 'response_intensity': 0.6},
-            'excitement': {'threshold': 0.7, 'response_intensity': 0.9},
-            'confusion': {'threshold': 0.5, 'response_intensity': 0.6}
-        }
+        # Убираем вызов несуществующего метода
+        # self.emotional_models = self._create_emotional_models()
     
+    def _create_empathy_responses(self):
+        """Создание эмпатичных ответов"""
+        return {
+            'joy': ['Я рад за тебя!', 'Это прекрасно!', 'Как здорово!'],
+            'sadness': ['Понимаю тебя...', 'Мне жаль...', 'Держись!'],
+            'anger': ['Понимаю твои чувства', 'Это действительно неприятно'],
+            'excitement': ['Здорово!', 'Восхитительно!', 'Я разделяю твой восторг!'],
+            'confusion': ['Понимаю твоё замешательство', 'Давай разберемся вместе']
+        }
+       
     def analyze_emotional_state(self, message, history):
         """Анализ эмоционального состояния"""
         text = message.lower()
@@ -1051,4 +1052,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
