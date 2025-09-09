@@ -1,2 +1,2 @@
 [phases.setup]
-nixPkgs = ["python3", "gcc", "python3-distutils"]
+nixPkgs = ["python3", "gcc", "python3-distutils", "sqlite"]
