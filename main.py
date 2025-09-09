@@ -40,6 +40,9 @@ logger = logging.getLogger(__name__)
 # Обработчик сигналов для graceful shutdown
 def signal_handler(sig, frame):
     print("\n🛑 Останавливаю бота...")
+    # Создаем задачу для graceful shutdown
+    if 'application' in globals() and application.running:
+        application.stop()
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -685,9 +688,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
 
-# ДОБАВЬТЕ ЭТУ ЧАСТЬ ПЕРЕД КЛАССОМ UserDatabase
-# ... теперь следует класс UserDatabase ...
-
 class UserDatabase:
     def __init__(self, db_name="bot_users.db"):
         self.db_name = db_name
@@ -698,9 +698,74 @@ class UserDatabase:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
         
-        # ... существующий код инициализации базы данных ...
+        # Таблица пользователей
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                gender TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_interaction DATETIME,
+                conversation_style TEXT DEFAULT 'balanced',
+                emotional_profile TEXT
+            )
+        ''')
         
-    # ДОБАВЬТЕ ЭТИ МЕТОДЫ В КЛАСС UserDatabase
+        # Таблица сообщений с расширенными полями
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                message_text TEXT,
+                bot_response TEXT,
+                message_type TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                emotions TEXT,
+                style TEXT,
+                typing_time REAL,
+                thinking_time REAL,
+                context_hash TEXT,
+                emotional_score REAL,
+                topic_tags TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        # Таблица контекста
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS conversation_context (
+                user_id INTEGER PRIMARY KEY,
+                current_topics TEXT,
+                historical_topics TEXT,
+                emotional_arc TEXT,
+                conversation_rhythm TEXT,
+                user_patterns TEXT,
+                unfinished_threads TEXT,
+                last_deep_analysis DATETIME,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        # Таблица памяти
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS conversation_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                memory_type TEXT,
+                content TEXT,
+                emotional_weight REAL,
+                last_recalled DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("✅ База данных инициализирована")
     
     def get_user(self, user_id: int) -> Optional[tuple]:
         """Получение пользователя по ID"""
@@ -1061,5 +1126,6 @@ async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     main()
+
 
 
