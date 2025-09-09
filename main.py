@@ -867,7 +867,7 @@ class UserDatabase:
             return {}
 
 async def process_message_with_deep_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   """Обработка сообщения с глубоким контекстным анализом"""
+    """Обработка сообщения с глубоким контекстным анализом"""
     try:
         user_id = update.effective_user.id
         user_message = update.message.text
@@ -890,7 +890,7 @@ async def process_message_with_deep_context(update: Update, context: ContextType
             user_message, user_context, history
         )
         
-        # Создание промпта с глубоким контекстом
+        # Создание промпта с глубоком контекстом
         prompt = create_deep_context_prompt(user_message, deep_context, emotional_state, memory_reference, user_context)
         
         # Генерация ответа
@@ -1060,6 +1060,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
