@@ -258,7 +258,7 @@ class HumanConversationSimulator:
             'conversation_style': conversation_style,
             'typing_profile': typing_profile
         }
-    
+
     def _select_conversation_style(self, deep_context):
     """Выбор стиля беседы based on контекста"""
     # Проверяем наличие необходимых ключей в deep_context
@@ -1060,6 +1060,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
