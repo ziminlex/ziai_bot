@@ -407,6 +407,16 @@ class EmotionalIntelligence:
     def __init__(self):
         self.emotional_models = self._create_emotional_models()
         self.empathy_responses = self._create_empathy_responses()
+
+    def _create_emotional_models(self):
+        """Создание эмоциональных моделей (заглушка)"""
+        return {
+            'joy': {'threshold': 0.6, 'response_intensity': 0.8},
+            'sadness': {'threshold': 0.5, 'response_intensity': 0.7},
+            'anger': {'threshold': 0.4, 'response_intensity': 0.6},
+            'excitement': {'threshold': 0.7, 'response_intensity': 0.9},
+            'confusion': {'threshold': 0.5, 'response_intensity': 0.6}
+        }
     
     def analyze_emotional_state(self, message, history):
         """Анализ эмоционального состояния"""
@@ -1041,3 +1051,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
