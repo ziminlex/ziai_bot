@@ -10,7 +10,7 @@ import signal
 import sys
 from datetime import datetime, timedelta
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 from telegram.error import Conflict
 from functools import lru_cache
 from enum import Enum
@@ -141,7 +141,7 @@ MAT_WORDS = [
     'заебал', 'заебать', 'заебись', 'уебище',
     'мудак', 'мудозвон', 'мудачина',
     'падла', 'падлюка', 'гандон', 'гондон',
-    'долбоёб', 'долбаёb', 'dolboeb',
+    'долбоёb', 'долбаёb', 'dolboeb',
     'сука', 'сучара', 'сучка',
     'выебок', 'выебываться',
     'трахать', 'оттраханный',
@@ -332,6 +332,36 @@ RELATIONSHIP_PHRASES = {
     ]
 }
 
+# Fallback ответы при ошибках
+FALLBACK_RESPONSES = [
+    "Извини, я немного запуталась... Можешь повторить?",
+    "Что-то я не совсем поняла...",
+    "Давай поговорим о чем-то другом?",
+    "Интересно... а что еще тебя волнует?",
+    "Слушай, у меня тут небольшие технические неполадки...",
+    "Кажется, я потеряла нить разговора...",
+    "Давай начнем заново? Что хотел сказать?"
+]
+
+def get_fallback_response():
+    """Возвращает случайный fallback ответ"""
+    return random.choice(FALLBACK_RESPONSES)
+
+async def cleanup_old_contexts():
+    """Периодическая очистка старых контекстов"""
+    while True:
+        await asyncio.sleep(3600)  # Каждый час
+        current_time = datetime.now()
+        removed_count = 0
+        
+        for user_id in list(conversation_context.keys()):
+            if (current_time - conversation_context[user_id]['last_interaction']) > timedelta(hours=24):
+                del conversation_context[user_id]
+                removed_count += 1
+        
+        if removed_count > 0:
+            logger.info(f"Очищено {removed_count} старых контекстов")
+
 def enhance_special_responses(user_id, message):
     """Улучшенные ответы с учетом контекста"""
     context = get_user_context(user_id)
@@ -398,12 +428,12 @@ def get_user_context(user_id):
             'messages_count': 0,
             'positive_interactions': 0,
             'negative_interactions': 0,
-            'discussed_topics': {},  # {topic: {'count': int, 'last_discussed': datetime, 'sentiment': float}}
-            'user_preferences': {},   # {preference: value}
-            'inside_jokes': [],       # Совместно созданные шутки
-            'unfinished_topics': [],  # Темы, которые не были развиты
-            'avg_message_length': 0,  # Средняя длина сообщений пользователя
-            'emoji_frequency': 0      # Частота использования эмодзи
+            'discussed_topics': {},
+            'user_preferences': {},
+            'inside_jokes': [],
+            'unfinished_topics': [],
+            'avg_message_length': 0,
+            'emoji_frequency': 0
         }
     return conversation_context[user_id]
 
@@ -412,10 +442,8 @@ def update_relationship_level(user_id, message_style, message_content):
     context = get_user_context(user_id)
     lower_msg = message_content.lower()
     
-    # Базовые очки за сообщение
     base_points = 1
     
-    # Модификаторы в зависимости от стиля
     style_modifiers = {
         'friendly': 2,
         'caring': 3,
@@ -429,13 +457,11 @@ def update_relationship_level(user_id, message_style, message_content):
         'hurt': -3
     }
     
-    # Бонусы за позитивные слова
     positive_words = ['спасибо', 'благодар', 'нравишься', 'люблю', 'скучаю', 'дорогой', 'милый']
     negative_words = MAT_WORDS + ['дурак', 'идиот', 'тупой', 'ненавижу', 'отвратит']
     
     points = base_points + style_modifiers.get(message_style, 0)
     
-    # Добавляем бонусы/штрафы за слова
     for word in positive_words:
         if word in lower_msg:
             points += 2
@@ -444,7 +470,6 @@ def update_relationship_level(user_id, message_style, message_content):
         if word in lower_msg:
             points -= 3
     
-    # Обновляем счет
     context['relationship_score'] += points
     context['messages_count'] += 1
     
@@ -453,11 +478,9 @@ def update_relationship_level(user_id, message_style, message_content):
     elif points < 0:
         context['negative_interactions'] += 1
     
-    # Уровень доверия основан на положительных взаимодействиях
     if context['messages_count'] > 0:
         context['trust_level'] = (context['positive_interactions'] / context['messages_count']) * 100
     
-    # Определяем новый уровень отношений
     if context['relationship_score'] >= 100:
         new_level = RelationshipLevel.BEST_FRIEND
     elif context['relationship_score'] >= 60:
@@ -469,7 +492,6 @@ def update_relationship_level(user_id, message_style, message_content):
     else:
         new_level = RelationshipLevel.STRANGER
     
-    # Обновляем уровень отношений если изменился
     if new_level != context['relationship_level']:
         context['relationship_level'] = new_level
         return True
@@ -509,7 +531,6 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     context['last_interaction'] = datetime.now()
     context['conversation_depth'] += 1
     
-    # Обновляем уровень отношений
     level_changed = update_relationship_level(user_id, style, user_message)
     
     extract_user_info(user_id, user_message)
@@ -524,17 +545,14 @@ def analyze_user_communication_style(user_id, message):
     """Анализирует стиль общения пользователя"""
     context = get_user_context(user_id)
     
-    # Анализ длины сообщений
     avg_length = context.get('avg_message_length', 0)
     context['avg_message_length'] = (avg_length * 0.8) + (len(message) * 0.2)
     
-    # Анализ использования эмодзи
     emoji_count = len(re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]', message))
     context['emoji_frequency'] = context.get('emoji_frequency', 0) * 0.9 + emoji_count * 0.1
     
-    # Адаптация к стилю пользователя
     if context['emoji_frequency'] > 1.5 and random.random() < 0.6:
-        return True  # Пользователь часто использует эмодзи
+        return True
     
     return False
 
@@ -545,18 +563,16 @@ def create_memory_reference(user_id, current_message):
     if len(context['history']) < 3:
         return None
     
-    # Ищем ключевые слова в текущем сообщении
     current_keywords = set(re.findall(r'\b([а-яА-ЯёЁ]{4,})\b', current_message.lower()))
     
-    # Ищем в истории (последние 10 сообщений)
     for i, past_msg in enumerate(context['history'][-10:]):
-        if i < 2:  # Пропускаем самые последние
+        if i < 2:
             continue
             
         past_keywords = set(re.findall(r'\b([а-яА-ЯёЁ]{4,})\b', past_msg['user'].lower()))
         common_keywords = current_keywords.intersection(past_keywords)
         
-        if len(common_keywords) >= 2:  # Если есть хотя бы 2 общих слова
+        if len(common_keywords) >= 2:
             days_ago = (datetime.now() - past_msg['timestamp']).days
             
             if days_ago == 0:
@@ -566,7 +582,7 @@ def create_memory_reference(user_id, current_message):
             elif days_ago < 7:
                 time_ref = f"{days_ago} дней назад"
             else:
-                continue  # Слишком давно
+                continue
             
             topic = random.choice(list(common_keywords))
             return f"Кстати, помнишь, {time_ref} ты говорил про {topic}..."
@@ -585,12 +601,10 @@ async def handle_uncertainty(update, user_id, message):
         "Мне нужно секунду подумать об этом..."
     ]
     
-    # Показываем неуверенность только иногда
     if random.random() < 0.4:
         await update.message.chat.send_message(random.choice(responses))
         await asyncio.sleep(random.uniform(1, 2))
     
-    # Задаем уточняющие вопросы с вероятностью 30%
     if random.random() < 0.3:
         clarifying_questions = [
             "Что именно тебя интересует?",
@@ -606,9 +620,8 @@ def track_discussed_topics(user_id, message, response):
     """Отслеживает обсуждаемые темы"""
     context = get_user_context(user_id)
     
-    # Простой анализ темы по ключевым словам
     topic_keywords = re.findall(r'\b([а-яА-ЯёЁ]{4,})\b', message + " " + response)
-    for topic in topic_keywords[:3]:  # Берем первые 3 ключевых слова
+    for topic in topic_keywords[:3]:
         if len(topic) > 3 and topic.lower() not in ['этот', 'очень', 'который', 'когда']:
             if topic in context['discussed_topics']:
                 context['discussed_topics'][topic]['count'] += 1
@@ -627,11 +640,9 @@ def get_conversation_depth(user_id):
     if len(context['history']) < 2:
         return 0
     
-    # Простой анализ: если последние сообщения содержат похожие слова
     last_messages = [msg['user'] for msg in context['history'][-3:]] + [msg['bot'] for msg in context['history'][-3:]]
     all_text = " ".join(last_messages).lower()
     
-    # Считаем уникальные слова
     words = re.findall(r'\b[а-яё]{3,}\b', all_text)
     unique_ratio = len(set(words)) / len(words) if words else 1
     
@@ -642,7 +653,6 @@ def extract_user_info(user_id, message):
     context = get_user_context(user_id)
     lower_msg = message.lower()
     
-    # Извлечение мест
     places = re.findall(r'(в|из|на)\s+([А-Яа-яЁёA-Za-z\s-]{3,})', message)
     for _, place in places:
         if len(place) > 2 and place.lower() not in ['меня', 'тебя', 'себя', 'гитаре']:
@@ -651,7 +661,6 @@ def extract_user_info(user_id, message):
             if place not in context['user_info']['places']:
                 context['user_info']['places'].append(place)
     
-    # Извлечение интересов - улучшенная версия
     interest_patterns = [
         r'(люблю|нравится|увлекаюсь|занимаюсь|обожаю)\s+([а-яА-ЯёЁ\s]{3,20})',
         r'(хобби|увлечение|интерес)\s*[:-]?\s*([а-яА-ЯёЁ\s]{3,20})',
@@ -670,7 +679,6 @@ def extract_user_info(user_id, message):
                 if interest not in context['user_info']['interests']:
                     context['user_info']['interests'].append(interest)
     
-    # Извлечение имени пользователя (если еще не известно)
     if not context['user_name']:
         name_patterns = [
             r'(меня|зовут)\s+([А-Я][а-яё]{2,15})',
@@ -690,7 +698,6 @@ def analyze_mood(user_id, message):
     context = get_user_context(user_id)
     lower_msg = message.lower()
     
-    # Ключевые слова для анализа настроения
     positive_words = ['хорошо', 'отлично', 'прекрасно', 'рад', 'счастлив', 'ура', 'класс', 'супер']
     negative_words = ['плохо', 'грустно', 'печально', 'устал', 'бесит', 'раздражает', 'ненавижу', 'обидно']
     neutral_words = ['нормально', 'обычно', 'так себе', 'ничего', 'окей']
@@ -705,29 +712,24 @@ def analyze_mood(user_id, message):
         context['mood'] = 'negative'
     elif neutral_count > 0:
         context['mood'] = 'neutral'
-    else:
-        # Если ключевых слов нет, оставляем предыдущее настроение
-        pass
 
 def detect_mat(message):
     """Обнаружение матерных слов с учетом контекста"""
     lower_msg = message.lower()
     
-    # Проверяем наличие матерных слов
     mat_detected = any(mat_word in lower_msg for mat_word in MAT_WORDS)
     
     if mat_detected:
-        # Проверяем контекст - возможно, это цитата или не оскорбление
         quote_patterns = [
-            r'"[^"]*' + '|'.join(MAT_WORDS) + r'[^"]*"',  # В кавычках
-            r'как\s+говорят',  # "как говорят"
-            r'так\s+сказать',  # "так сказать"
-            r'извините\s+за\s+выражение',  # "извините за выражение"
+            r'"[^"]*' + '|'.join(MAT_WORDS) + r'[^"]*"',
+            r'как\s+говорят',
+            r'так\s+сказать',
+            r'извините\s+за\s+выражение',
         ]
         
         is_quote = any(re.search(pattern, lower_msg) for pattern in quote_patterns)
         
-        return not is_quote  # True если мат не в цитате
+        return not is_quote
     
     return False
 
@@ -736,60 +738,50 @@ def determine_communication_style(user_id, message):
     context = get_user_context(user_id)
     lower_msg = message.lower()
     
-    # Проверка на мат
     if detect_mat(message):
         context['mat_count'] += 1
         context['last_offense'] = datetime.now()
         
-        # Реакция зависит от уровня отношений
         if context['relationship_level'].value >= RelationshipLevel.CLOSE_FRIEND.value:
-            return 'hurt'  # Обида от близкого друга
+            return 'hurt'
         else:
-            return 'angry'  # Гнев на незнакомца
+            return 'angry'
     
-    # Проверка триггеров для разных стилей
     for style, triggers in STYLE_TRIGGERS.items():
         for trigger in triggers:
             if trigger in lower_msg:
                 return style
     
-    # Учет настроения пользователя
     if context['mood'] == 'negative':
         return 'caring'
     elif context['mood'] == 'positive' and random.random() < 0.3:
         return 'friendly'
     
-    # Учет уровня отношений
     if context['relationship_level'].value >= RelationshipLevel.CLOSE_FRIEND.value:
         if random.random() < 0.4:
             return 'affectionate'
     
-    # Случайное разнообразие
     if random.random() < 0.2:
         return random.choice(['friendly', 'sarcastic', 'neutral'])
     
-    return context['last_style']  # Возвращаем предыдущий стиль
+    return context['last_style']
 
 def naturalize_response(response, style, user_id):
     """Делает ответ более естественным"""
     context = get_user_context(user_id)
     
-    # Добавление естественных пауз и размышлений
     thinking_words = ['хм', 'ну', 'вообще', 'знаешь', 'кстати', 'в общем']
     if random.random() < 0.3 and len(response.split()) > 5:
         thinking_word = random.choice(thinking_words)
         response = f"{thinking_word.capitalize()}... {response.lower()}"
     
-    # Добавление эмодзи в зависимости от стиля
     if random.random() < 0.6 and style in EMOJIS:
         emoji = random.choice(EMOJIS[style])
-        # Добавляем эмодзи в конец или начало с вероятностью
         if random.random() < 0.7:
             response = f"{response} {emoji}"
         else:
             response = f"{emoji} {response}"
     
-    # Использование имени пользователя (не слишком часто)
     if (context['user_name'] and 
         random.random() < 0.25 and 
         context['name_used_count'] < 3 and
@@ -806,7 +798,6 @@ def naturalize_response(response, style, user_id):
         context['name_used_count'] += 1
         context['last_name_usage'] = datetime.now()
     
-    # Добавление естественных вопросов
     if (random.random() < 0.4 and 
         '?' not in response and 
         len(response.split()) > 3):
@@ -821,21 +812,17 @@ def create_prompt(user_id, message, style):
     context = get_user_context(user_id)
     style_config = COMMUNICATION_STYLES[style]
     
-    # Базовый промпт
     prompt = style_config['prompt']
     
-    # Добавляем информацию об отношениях
     relationship_modifier = get_relationship_modifier(user_id)
     prompt += f"\n{relationship_modifier}"
     
-    # Добавляем историю беседы
     if context['history']:
         prompt += "\n\nКонтекст предыдущего общения:\n"
-        for i, msg in enumerate(context['history'][-3:]):  # Последние 3 сообщения
+        for i, msg in enumerate(context['history'][-3:]):
             prompt += f"Пользователь: {msg['user']}\n"
             prompt += f"Ты: {msg['bot']}\n"
     
-    # Добавляем информацию о пользователе
     if context['user_info']:
         prompt += "\nИнформация о пользователе:\n"
         if 'interests' in context['user_info']:
@@ -845,10 +832,7 @@ def create_prompt(user_id, message, style):
         if context['user_name']:
             prompt += f"Имя пользователя: {context['user_name']}\n"
     
-    # Добавляем текущее настроение
     prompt += f"\nТекущее настроение пользователя: {context['mood']}"
-    
-    # Добавляем текущее сообщение
     prompt += f"\n\nТекущее сообщение пользователя: {message}"
     prompt += "\n\nТвой ответ (естественный, человеческий, соответствующий стилю):"
     
@@ -893,6 +877,9 @@ async def call_yandex_gpt(prompt, temperature=0.7):
     except (KeyError, IndexError) as e:
         logger.error(f"Ошибка парсинга ответа Yandex GPT: {e}")
         return None
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка в Yandex GPT: {str(e)}")
+        return None
 
 async def process_message(update, context):
     """Обработка входящего сообщения"""
@@ -902,65 +889,115 @@ async def process_message(update, context):
     if not message or message.strip() == "":
         return
     
-    # Получаем контекст пользователя
     user_context = get_user_context(user_id)
     
-    # Определяем стиль общения
     style = determine_communication_style(user_id, message)
     
-    # Проверяем специальные ответы
     special_response = enhance_special_responses(user_id, message)
     if special_response:
         response = special_response
     else:
-        # Создаем промпт
         prompt = create_prompt(user_id, message, style)
         
-        # Получаем температуру для стиля
         temperature = COMMUNICATION_STYLES[style]['temperature']
         
-        # Вызываем Yandex GPT
         response = await call_yandex_gpt(prompt, temperature)
         
         if not response:
-            # Fallback ответ
-            fallback_responses = [
-                "Извини, я немного запуталась... Можешь повторить?",
-                "Что-то я не совсем поняла...",
-                "Давай поговорим о чем-то другом?",
-                "Интересно... а что еще тебя волнует?"
-            ]
-            response = random.choice(fallback_responses)
+            response = get_fallback_response()
     
-    # Делаем ответ более естественным
     response = naturalize_response(response, style, user_id)
     
-    # Обновляем контекст
     level_changed = update_conversation_context(user_id, message, response, style)
     
-    # Если изменился уровень отношений, добавляем соответствующую фразу
     if level_changed:
         relationship_phrase = random.choice(RELATIONSHIP_PHRASES[user_context['relationship_level']])
         response = f"{relationship_phrase} {response}"
     
-    # Имитация набора текста
     typing_delay = user_context.get('typing_speed', random.uniform(MIN_TYPING_DELAY, MAX_TYPING_DELAY))
     await asyncio.sleep(len(response) * typing_delay)
     
-    # Отправляем ответ
     await update.message.reply_text(response)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка команды /start"""
+    user_id = update.message.from_user.id
+    user_context = get_user_context(user_id)
+    
+    welcome_messages = [
+        f"Привет! Я {JULIA_BIO['name']} 😊 Рада познакомиться!",
+        f"Здравствуй! Я {JULIA_BIO['name']}, всегда рада новым знакомствам!",
+        f"Приветствую! {JULIA_BIO['name']} готова к общению! 💫"
+    ]
+    
+    await update.message.reply_text(random.choice(welcome_messages))
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка команды /help"""
+    help_text = """
+🤖 Я - Юля, твой виртуальный собеседник!
+
+Я могу:
+💬 Общаться на разные темы
+🎨 Рассказывать о дизайне и искусстве
+✈️ Делиться мыслями о путешествиях
+😊 Поддерживать беседу естественно
+
+Просто напиши мне что-нибудь, и я с радостью отвечу!
+    """
+    await update.message.reply_text(help_text)
+
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка команды /reset"""
+    user_id = update.message.from_user.id
+    if user_id in conversation_context:
+        del conversation_context[user_id]
+    
+    await update.message.reply_text("💫 Начинаем с чистого листа! Давай познакомимся заново!")
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка фотографий"""
+    responses = [
+        "Классное фото! 😊",
+        "Интересное изображение!",
+        "Спасибо за фото!",
+        "Красиво! 📸"
+    ]
+    await update.message.reply_text(random.choice(responses))
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка голосовых сообщений"""
+    responses = [
+        "Извини, я пока не умею слушать голосовые сообщения 😅",
+        "Пока я лучше понимаю текстовые сообщения!",
+        "Можешь написать текстом? Я так лучше пойму 😊"
+    ]
+    await update.message.reply_text(random.choice(responses))
 
 def main():
     """Основная функция"""
     if not all([TELEGRAM_BOT_TOKEN, YANDEX_API_KEY, YANDEX_FOLDER_ID]):
         logger.error("Не все переменные окружения установлены!")
+        logger.error("Проверьте: TELEGRAM_BOT_TOKEN, YANDEX_API_KEY, YANDEX_FOLDER_ID")
         return
     
     # Создаем приложение
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Добавляем обработчик сообщений
+    # Добавляем обработчики команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("reset", reset_command))
+    
+    # Добавляем обработчики медиа
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    
+    # Добавляем обработчик текстовых сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message))
+    
+    # Запускаем фоновую задачу очистки
+    asyncio.get_event_loop().create_task(cleanup_old_contexts())
     
     # Запускаем бота
     logger.info("🤖 Бот запущен! Ожидаю сообщения...")
