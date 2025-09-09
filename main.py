@@ -332,6 +332,39 @@ RELATIONSHIP_PHRASES = {
     ]
 }
 
+def enhance_special_responses(user_id, message):
+    """Улучшенные ответы с учетом контекста"""
+    context = get_user_context(user_id)
+    lower_msg = message.lower()
+    
+    if 'как тебя зовут' in lower_msg:
+        if context['relationship_level'].value >= RelationshipLevel.FRIEND.value:
+            return random.choice([
+                f"Ты что, забыл уже? Я {JULIA_BIO['name']}! 😊",
+                f"Как будто не знаешь... {JULIA_BIO['name']}",
+                f"Можно просто Юля 😊 А тебя как зовут-то?"
+            ])
+        else:
+            return random.choice(SPECIAL_RESPONSES['как тебя зовут'])
+    
+    if 'сколько тебе лет' in lower_msg:
+        if context['relationship_level'].value >= RelationshipLevel.CLOSE_FRIEND.value:
+            return random.choice([
+                f"А тебе какая разница? 😏 Но если хочешь знать - {JULIA_BIO['age']}",
+                f"Всего {JULIA_BIO['age']}, а чувствую себя на все 100!",
+                f"{JULIA_BIO['age']}... и не напоминай об этом! 😅"
+            ])
+    
+    if 'откуда ты' in lower_msg:
+        if context['relationship_level'].value >= RelationshipLevel.FRIEND.value:
+            return random.choice([
+                f"Из {JULIA_BIO['city']}, конечно! Разве не видно? 😄",
+                f"{JULIA_BIO['city']} - мой родной город! А ты откуда?",
+                f"Родом из {JULIA_BIO['city']}, но душа везде 🎒"
+            ])
+    
+    return None
+
 def get_user_context(user_id):
     """Получает контекст пользователя"""
     if user_id not in conversation_context:
@@ -357,7 +390,15 @@ def get_user_context(user_id):
             'affection_level': 0,
             'messages_count': 0,
             'positive_interactions': 0,
-            'negative_interactions': 0
+            'negative_interactions': 0,
+            # ↓↓↓ ДОБАВИТЬ ЗДЕСЬ ↓↓↓
+            'discussed_topics': {},  # {topic: {'count': int, 'last_discussed': datetime, 'sentiment': float}}
+            'user_preferences': {},   # {preference: value}
+            'inside_jokes': [],       # Совместно созданные шутки
+            'unfinished_topics': [],  # Темы, которые не были развиты
+            'avg_message_length': 0,  # Средняя длина сообщений пользователя
+            'emoji_frequency': 0      # Частота использования эмодзи
+            # ↑↑↑ ДОБАВИТЬ ЗДЕСЬ ↑↑↑
         }
     return conversation_context[user_id]
 
@@ -473,6 +514,123 @@ def update_conversation_context(user_id, user_message, bot_response, style):
         context['first_interaction'] = False
     
     return level_changed
+
+def analyze_user_communication_style(user_id, message):
+    """Анализирует стиль общения пользователя"""
+    context = get_user_context(user_id)
+    
+    # Анализ длины сообщений
+    avg_length = context.get('avg_message_length', 0)
+    context['avg_message_length'] = (avg_length * 0.8) + (len(message) * 0.2)
+    
+    # Анализ использования эмодзи
+    emoji_count = len(re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]', message))
+    context['emoji_frequency'] = context.get('emoji_frequency', 0) * 0.9 + emoji_count * 0.1
+    
+    # Адаптация к стилю пользователя
+    if context['emoji_frequency'] > 1.5 and random.random() < 0.6:
+        return True  # Пользователь часто использует эмодзи
+    
+    return False
+
+def create_memory_reference(user_id, current_message):
+    """Создает отсылки к предыдущим разговорам"""
+    context = get_user_context(user_id)
+    
+    if len(context['history']) < 3:
+        return None
+    
+    # Ищем ключевые слова в текущем сообщении
+    current_keywords = set(re.findall(r'\b([а-яА-ЯёЁ]{4,})\b', current_message.lower()))
+    
+    # Ищем в истории (последние 10 сообщений)
+    for i, past_msg in enumerate(context['history'][-10:]):
+        if i < 2:  # Пропускаем самые последние
+            continue
+            
+        past_keywords = set(re.findall(r'\b([а-яА-ЯёЁ]{4,})\b', past_msg['user'].lower()))
+        common_keywords = current_keywords.intersection(past_keywords)
+        
+        if len(common_keywords) >= 2:  # Если есть хотя бы 2 общих слова
+            days_ago = (datetime.now() - past_msg['timestamp']).days
+            
+            if days_ago == 0:
+                time_ref = "сегодня"
+            elif days_ago == 1:
+                time_ref = "вчера"
+            elif days_ago < 7:
+                time_ref = f"{days_ago} дней назад"
+            else:
+                continue  # Слишком давно
+            
+            topic = random.choice(list(common_keywords))
+            return f"Кстати, помнишь, {time_ref} ты говорил про {topic}..."
+    
+    return None
+
+async def handle_uncertainty(update, user_id, message):
+    """Обработка ситуаций, когда бот не уверен в ответе"""
+    context = get_user_context(user_id)
+    
+    responses = [
+        "Хм, дай подумать...",
+        "Интересный вопрос...",
+        "Так, сейчас соображу...",
+        "Давай разберемся...",
+        "Мне нужно секунду подумать об этом..."
+    ]
+    
+    # Показываем неуверенность только иногда
+    if random.random() < 0.4:
+        await update.message.chat.send_message(random.choice(responses))
+        await asyncio.sleep(random.uniform(1, 2))
+    
+    # Задаем уточняющие вопросы с вероятностью 30%
+    if random.random() < 0.3:
+        clarifying_questions = [
+            "Что именно тебя интересует?",
+            "Можешь подробнее объяснить?",
+            "Я не совсем поняла контекст...",
+            "Это вопрос из какой области?"
+        ]
+        return random.choice(clarifying_questions)
+    
+    return None
+
+def track_discussed_topics(user_id, message, response):
+    """Отслеживает обсуждаемые темы"""
+    context = get_user_context(user_id)
+    
+    # Простой анализ темы по ключевым словам
+    topic_keywords = re.findall(r'\b([а-яА-ЯёЁ]{4,})\b', message + " " + response)
+    for topic in topic_keywords[:3]:  # Берем первые 3 ключевых слова
+        if len(topic) > 3 and topic.lower() not in ['этот', 'очень', 'который', 'когда']:
+            if topic in context['discussed_topics']:
+                context['discussed_topics'][topic]['count'] += 1
+                context['discussed_topics'][topic]['last_discussed'] = datetime.now()
+            else:
+                context['discussed_topics'][topic] = {
+                    'count': 1,
+                    'first_discussed': datetime.now(),
+                    'last_discussed': datetime.now(),
+                    'sentiment': 0.5
+                }
+
+def get_conversation_depth(user_id):
+    """Определяет глубину текущей темы"""
+    context = get_user_context(user_id)
+    if len(context['history']) < 2:
+        return 0
+    
+    # Простой анализ: если последние сообщения содержат похожие слова
+    last_messages = [msg['user'] for msg in context['history'][-3:]] + [msg['bot'] for msg in context['history'][-3:]]
+    all_text = " ".join(last_messages).lower()
+    
+    # Считаем уникальные слова
+    words = re.findall(r'\b[а-яё]{3,}\b', all_text)
+    unique_ratio = len(set(words)) / len(words) if words else 1
+    
+    return max(0, min(5, int((1 - unique_ratio) * 5)))
 
 def extract_user_info(user_id, message):
     """Извлекает информацию о пользователе"""
@@ -633,6 +791,33 @@ async def simulate_human_typing(chat, message):
     
     await chat.send_message(message)
 
+async def enhanced_typing_simulation(chat, message):
+    """Улучшенная симуляция с естественными паузами"""
+    await chat.send_action(action="typing")
+    
+    # Разбиваем сообщение на смысловые части
+    sentences = re.split(r'[.!?]+', message)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    
+    for i, sentence in enumerate(sentences):
+        # Время печати для предложения
+        typing_time = len(sentence) * random.uniform(0.02, 0.05)
+        await asyncio.sleep(min(typing_time, 2.0))  # Ограничиваем максимальное время
+        
+        # Пауза между предложениями
+        if i < len(sentences) - 1:
+            pause_time = random.uniform(0.3, 1.2)
+            
+            # Иногда прерываем "печать" для естественности
+            if random.random() < 0.2:
+                await asyncio.sleep(pause_time * 0.5)
+                await chat.send_action(action="typing")
+                await asyncio.sleep(pause_time * 0.5)
+            else:
+                await asyncio.sleep(pause_time)
+    
+    await chat.send_message(message)
+
 def add_natural_question(response, user_id):
     """Добавляет естественный вопрос"""
     context = get_user_context(user_id)
@@ -721,6 +906,27 @@ def detect_communication_style(message, user_id):
         return context['last_style']
     
     return 'neutral'
+
+def get_emotional_coherence(user_id, detected_style):
+    """Обеспечивает плавность эмоциональных переходов"""
+    context = get_user_context(user_id)
+    
+    # Интенсивность стилей
+    style_intensity = {
+        'neutral': 0, 'friendly': 1, 'caring': 2, 
+        'sarcastic': 1, 'flirtatious': 3, 'technical': 0,
+        'aggressive': -2, 'angry': -3, 'hurt': -2, 'affectionate': 3
+    }
+    
+    current_intensity = style_intensity.get(context['last_style'], 0)
+    new_intensity = style_intensity.get(detected_style, 0)
+    
+    # Резкая смена настроения маловероятна
+    if abs(current_intensity - new_intensity) > 2 and random.random() < 0.7:
+        # Плавный переход к нейтральному
+        return 'neutral'
+    
+    return detected_style
 
 def should_use_name(user_id):
     """Определяет, стоит ли использовать имя пользователя"""
@@ -854,7 +1060,6 @@ async def call_yandex_gpt(message, user_id, style='neutral'):
         return "Ой, что-то пошло не так. Давай попробуем еще раз?"
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает входящие сообщения"""
     try:
         user_id = update.effective_user.id
         user_message = update.message.text
@@ -867,24 +1072,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Обрабатываем жаргон
         processed_message = process_slang(user_message)
         
+        # ↓↓↓ ДОБАВИТЬ ЗДЕСЬ - анализ стиля пользователя ↓↓↓
+        mirror_style = analyze_user_communication_style(user_id, processed_message)
+        # Можно использовать mirror_style для адаптации
+        
         # Определяем стиль общения
         style = detect_communication_style(processed_message, user_id)
         
+        # ↓↓↓ ДОБАВИТЬ ЗДЕСЬ - эмоциональная согласованность ↓↓↓
+        style = get_emotional_coherence(user_id, style)
+        
         # Специальные ответы на частые вопросы
         lower_msg = processed_message.lower()
-        for pattern, responses in SPECIAL_RESPONSES.items():
-            if pattern in lower_msg:
-                response = random.choice(responses)
-                
-                # Обновляем контекст
-                update_conversation_context(user_id, user_message, response, style)
-                
-                # Симулируем печать и отправляем
-                await simulate_human_typing(update.message.chat, response)
-                return
+        
+        # ↓↓↓ ЗАМЕНИТЬ этот блок ↓↓↓
+        # for pattern, responses in SPECIAL_RESPONSES.items():
+        #     if pattern in lower_msg:
+        #         response = random.choice(responses)
+        # ↓↓↓ НА ЭТОТ ↓↓↓
+        special_response = enhance_special_responses(user_id, processed_message)
+        if special_response:
+            response = special_response
+            
+            # Обновляем контекст
+            update_conversation_context(user_id, user_message, response, style)
+            
+            # Отслеживаем темы
+            track_discussed_topics(user_id, user_message, response)
+            
+            # Симулируем печать и отправляем
+            await enhanced_typing_simulation(update.message.chat, response)
+            return
+        # ↑↑↑ ДО БЛОКА GPT ↑↑↑
         
         # Симулируем размышление
         thought = await simulate_thinking(update.message.chat)
+        
+        # ↓↓↓ ДОБАВИТЬ ЗДЕСЬ - обработка неопределенности ↓↓↓
+        if random.random() < 0.1:  # 10% chance для демонстрации неуверенности
+            uncertainty_response = await handle_uncertainty(update, user_id, processed_message)
+            if uncertainty_response:
+                await update.message.chat.send_message(uncertainty_response)
         
         # Получаем ответ от GPT
         gpt_response = await call_yandex_gpt(processed_message, user_id, style)
@@ -898,11 +1126,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = add_self_corrections(response)
         response = add_emotional_reaction(response, style)
         response = personalize_response(response, user_id)
+        
+        # ↓↓↓ ДОБАВИТЬ ЗДЕСЬ - воспоминания ↓↓↓
+        memory_ref = create_memory_reference(user_id, processed_message)
+        if memory_ref and random.random() < 0.3:
+            response = f"{memory_ref} {response}"
+        
         response = add_natural_question(response, user_id)
         response = add_emoji(response, style)
         
         # Обновляем контекст
         level_changed = update_conversation_context(user_id, user_message, response, style)
+        
+        # ↓↓↓ ДОБАВИТЬ ЗДЕСЬ - отслеживание тем ↓↓↓
+        track_discussed_topics(user_id, user_message, response)
         
         # Если изменился уровень отношений, добавляем соответствующую фразу
         if level_changed:
@@ -910,11 +1147,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = f"{relationship_phrase}\n\n{response}"
         
         # Симулируем печать и отправляем ответ
-        await simulate_human_typing(update.message.chat, response)
+        await enhanced_typing_simulation(update.message.chat, response)
         
     except Exception as e:
         logger.error(f"Error in handle_message: {e}")
-        await update.message.reply_text("Ой, что-то пошло не так... Попробуй еще раз?")
+        # ↓↓↓ ЗАМЕНИТЬ эту строку ↓↓↓
+        # await update.message.reply_text("Ой, что-то пошло не так... Попробуй еще раз?")
+        # ↓↓↓ НА ЭТУ ↓↓↓
+        error_responses = [
+            "Ой, у меня что-то перемкнуло... Давай попробуем еще раз?",
+            "Кажется, я запуталась в своих мыслях...",
+            "Мой внутренний процессор дал сбой 😅"
+        ]
+        await update.message.reply_text(random.choice(error_responses))
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает ошибки"""
@@ -945,6 +1190,9 @@ def main():
         
         # Создаем приложение
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+        # Запускаем фоновые задачи
+        asyncio.get_event_loop().create_task(periodic_memory_cleanup())
         
         # Добавляем обработчики
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -964,8 +1212,34 @@ def main():
         print(f"❌ Критическая ошибка при запуске: {e}")
         print("💡 Проверьте правильность токена и настроек")
 
+async def periodic_memory_cleanup():
+    """Очистка старых воспоминаний и обновление контекста"""
+    while True:
+        await asyncio.sleep(3600)  # Каждый час
+        
+        for user_id, context in conversation_context.items():
+            # Удаляем старые записи истории (старше 7 дней)
+            context['history'] = [msg for msg in context['history'] 
+                                if (datetime.now() - msg['timestamp']).days < 7]
+            
+            # Очищаем старые темы (не обсуждались больше месяца)
+            current_time = datetime.now()
+            context['discussed_topics'] = {
+                topic: data for topic, data in context['discussed_topics'].items()
+                if (current_time - data['last_discussed']).days < 30
+            }
+
+async def start_background_tasks():
+    """Запускает фоновые задачи"""
+    asyncio.create_task(periodic_memory_cleanup())
+
+# В функции main() добавить после создания application:
+# await start_background_tasks()
+# ↑↑↑ ДОБАВИТЬ ЗДЕСЬ ↑↑↑
+
 if __name__ == "__main__":
     main()
+
 
 
 
