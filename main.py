@@ -851,87 +851,6 @@ class UserDatabase:
             logger.error(f"Ошибка получения статистики пользователя {user_id}: {e}")
             return {}
 
-class UserDatabase:
-    def __init__(self, db_name="bot_users.db"):
-        self.db_name = db_name
-        self.init_database()
-    
-    def init_database(self):
-        """Инициализация базы данных с расширенной схемой"""
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        
-        # Таблица пользователей
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                gender TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_interaction DATETIME,
-                conversation_style TEXT DEFAULT 'balanced',
-                emotional_profile TEXT
-            )
-        ''')
-        
-        # Таблица сообщений с расширенными полями
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                message_text TEXT,
-                bot_response TEXT,
-                message_type TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                emotions TEXT,
-                style TEXT,
-                typing_time REAL,
-                thinking_time REAL,
-                context_hash TEXT,
-                emotional_score REAL,
-                topic_tags TEXT,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        # Таблица контекста
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS conversation_context (
-                user_id INTEGER PRIMARY KEY,
-                current_topics TEXT,
-                historical_topics TEXT,
-                emotional_arc TEXT,
-                conversation_rhythm TEXT,
-                user_patterns TEXT,
-                unfinished_threads TEXT,
-                last_deep_analysis DATETIME,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        # Таблица памяти
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS conversation_memory (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                memory_type TEXT,
-                content TEXT,
-                emotional_weight REAL,
-                last_recalled DATETIME,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        logger.info("✅ База данных инициализирована")
-
-    # ... (остальные методы класса UserDatabase) ...
-
 async def process_message_with_deep_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщения с глубоким контекстным анализом"""
     try:
@@ -1126,6 +1045,7 @@ async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     main()
+
 
 
 
