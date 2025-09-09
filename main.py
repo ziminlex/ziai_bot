@@ -876,7 +876,7 @@ async def process_message_with_deep_context(update: Update, context: ContextType
         user_context = get_user_context(user_id)
         history = user_context.get('history', [])
         
-        # Глубокий анализ контекста
+        # Глубокий анализ контекста (обрабатываем случай, когда deep_context еще нет)
         deep_context = context_analyzer.extract_deep_context(user_message, history, user_context)
         
         # Анализ эмоционального состояния
@@ -890,7 +890,7 @@ async def process_message_with_deep_context(update: Update, context: ContextType
             user_message, user_context, history
         )
         
-        # Создание промпта с глубоком контекстом
+        # Создание промпта с глубоким контекстом
         prompt = create_deep_context_prompt(user_message, deep_context, emotional_state, memory_reference, user_context)
         
         # Генерация ответа
@@ -912,29 +912,56 @@ async def process_message_with_deep_context(update: Update, context: ContextType
         logger.error(f"Ошибка обработки сообщения: {e}")
         # Более простое сообщение для новых пользователей
         if "deep_context" in str(e):
-            await update.message.reply_text("Привет! Давай начнем общение. Расскажи, что тебя интересует?")
+            # Для новых пользователей используем упрощенный ответ
+            try:
+                simple_response = await generate_ai_response(
+                    f"Пользователь написал: {user_message}. Ответь естественно и дружелюбно как живой человек.",
+                    'balanced'
+                )
+                await update.message.reply_text(simple_response)
+                
+                # Сохраняем базовое взаимодействие
+                save_complete_context(
+                    user_id, 
+                    user_message, 
+                    simple_response, 
+                    {'current_topics': {}, 'historical_topics': {}, 'emotional_arc': {}, 
+                     'conversation_rhythm': {}, 'user_patterns': {}, 'unfinished_threads': {}}, 
+                    {'dominant_emotion': 'neutral', 'intensity': 0.5, 'emotional_trend': 'stable'}, 
+                    {'conversation_style': 'balanced', 'typing_time': 1.0, 'thinking_time': 1.0}
+                )
+            except Exception as inner_e:
+                logger.error(f"Ошибка в упрощенном режиме: {inner_e}")
+                await update.message.reply_text("Привет! Давай начнем общение. Расскажи, что тебя интересует?")
         else:
             await update.message.reply_text("Что-то я запуталась... Давай попробуем еще раз?")
             
 def create_deep_context_prompt(message, deep_context, emotional_state, memory_reference, user_context):
     """Создание промпта с глубоким контекстом"""
+    # Безопасное извлечение значений с значениями по умолчанию
+    current_topics = deep_context.get('current_topics', {})
+    historical_topics = deep_context.get('historical_topics', {})
+    conversation_rhythm = deep_context.get('conversation_rhythm', {})
+    user_patterns = deep_context.get('user_patterns', {})
+    unfinished_threads = deep_context.get('unfinished_threads', {})
+    
     prompt = f"""
 Ты - опытный собеседник, который ведет естественную человеческую беседу.
 
 ТЕКУЩИЙ КОНТЕКСТ:
 - Сообщение: {message}
-- Эмоциональное состояние: {emotional_state['dominant_emotion']} (интенсивность: {emotional_state['intensity']:.2f})
-- Настроение: {emotional_state['emotional_trend']}
-- Темп беседы: {deep_context['conversation_rhythm']['pace']}
+- Эмоциональное состояние: {emotional_state.get('dominant_emotion', 'neutral')} (интенсивность: {emotional_state.get('intensity', 0.5):.2f})
+- Настроение: {emotional_state.get('emotional_trend', 'stable')}
+- Темп беседы: {conversation_rhythm.get('pace', 'medium')}
 
 ИСТОРИЯ БЕСЕДЫ:
-Текущие темы: {', '.join(list(deep_context['current_topics'].keys())[:3])}
-Исторические темы: {', '.join(list(deep_context['historical_topics'].keys())[:3])}
-Незавершенные вопросы: {len(deep_context['unfinished_threads']['user_questions'])}
+Текущие темы: {', '.join(list(current_topics.keys())[:3]) if current_topics else 'новый разговор'}
+Исторические темы: {', '.join(list(historical_topics.keys())[:3]) if historical_topics else 'еще нет истории'}
+Незавершенные вопросы: {len(unfinished_threads.get('user_questions', []))}
 
 ПАТТЕРНЫ ПОЛЬЗОВАТЕЛЯ:
-Стиль ответов: {deep_context['user_patterns']['response_style']}
-Частота вопросов: {deep_context['user_patterns']['question_frequency']:.2f}
+Стиль ответов: {user_patterns.get('response_style', 'balanced')}
+Частота вопросов: {user_patterns.get('question_frequency', 0.3):.2f}
 
 {'ВОСПОМИНАНИЕ: ' + memory_reference if memory_reference else ''}
 
@@ -1060,6 +1087,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
