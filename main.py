@@ -259,7 +259,7 @@ class HumanConversationSimulator:
             'typing_profile': typing_profile
         }
 
-    def _select_conversation_style(self, deep_context):
+def _select_conversation_style(self, deep_context):
     """Выбор стиля беседы based on контекста"""
     # Проверяем наличие необходимых ключей в deep_context
     if not deep_context or 'emotional_arc' not in deep_context:
@@ -1060,6 +1060,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
