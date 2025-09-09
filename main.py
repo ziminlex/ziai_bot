@@ -14,6 +14,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes, Com
 from telegram.error import Conflict
 from functools import lru_cache
 from enum import Enum
+import aiohttp
 
 # Настройка логирования
 logging.basicConfig(
@@ -34,6 +35,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
 
 # URL API Yandex GPT
 YANDEX_API_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
@@ -92,7 +94,7 @@ BASE_SYSTEM_PROMPT = f"""
 Ты современная девушка, понимаешь молодежный слан и жаргон, но сама говоришь достаточно культурно.
 Можешь понять неформальные выражения и ответить на них адекватно, без ханжества, но и без пошлости.
 
-ВАЖНО: Не задавай слишком много вопросов. Задавай вопросы только когда это уместно и естественно.
+ВАЖНО: Не задавай слишком много вопросы. Задавай вопросы только когда это уместно и естественно.
 Предпочитай утверждения и комментарии постоянным расспросам. Отвечай на сообщение, а не переводи разговор.
 
 Отвечай как живой человек, естественно и непринужденно. Ты общаешься в Telegram-чате.
@@ -152,6 +154,18 @@ MAT_WORDS = [
     'манда', 'мандавожка',
     'шлюха', 'шлюшка', 'блядушка'
 ]
+
+# Эмоциональные паттерны
+EMOTION_PATTERNS = {
+    'joy': ['рад', 'счастлив', 'ура', 'класс', 'супер', 'люблю', 'нравится', 'восхитительно', 'восторг'],
+    'sadness': ['грустно', 'печально', 'плачу', 'тоскливо', 'одинок', 'больно', 'тяжело', 'уныло'],
+    'anger': ['злой', 'злюсь', 'бесит', 'раздражает', 'ненавижу', 'ярость', 'гнев', 'возмущен'],
+    'surprise': ['неожиданно', 'удивлен', 'вау', 'ого', 'ничего себе', 'вот это да', 'потрясающе'],
+    'trust': ['доверяю', 'верю', 'уверен', 'надеюсь', 'полагаюсь', 'уповаю'],
+    'anticipation': ['жду', 'ожидаю', 'предвкушаю', 'скоро', 'не терпится', 'жажду'],
+    'disgust': ['отвратительно', 'мерзко', 'противно', 'тошнит', 'гадко', 'омерзительно'],
+    'fear': ['боюсь', 'страшно', 'пугаю', 'опасно', 'тревожно', 'опасаюсь']
+}
 
 # Стили общения с разной температурой и промптами
 COMMUNICATION_STYLES = {
@@ -345,6 +359,14 @@ FALLBACK_RESPONSES = [
     "Давай начнем заново? Что хотел сказать?"
 ]
 
+# Новости для обогащения контекста (можно заменить на API)
+SAMPLE_NEWS = [
+    "в мире искусственного интеллекта произошел прорыв",
+    "открыли новую выставку современного искусства",
+    "вышел новый сериал, который все обсуждают",
+    "ученые сделали интересное открытие о природе человеческого общения"
+]
+
 def get_fallback_response():
     """Возвращает случайный fallback ответ"""
     return random.choice(FALLBACK_RESPONSES)
@@ -435,9 +457,235 @@ def get_user_context(user_id):
             'inside_jokes': [],
             'unfinished_topics': [],
             'avg_message_length': 0,
-            'emoji_frequency': 0
+            'emoji_frequency': 0,
+            # Новые поля для улучшений
+            'emotions': {emotion: 0 for emotion in EMOTION_PATTERNS.keys()},
+            'memory': {
+                'significant_events': [],
+                'user_preferences': {},
+                'shared_experiences': [],
+                'inside_jokes': [],
+                'important_dates': {}
+            },
+            'user_location': 'Москва',  # По умолчанию
+            'last_weather_check': None,
+            'conversation_initiations': 0
         }
     return conversation_context[user_id]
+
+def analyze_emotions(user_id, message):
+    """Глубокий анализ эмоций в сообщении"""
+    context = get_user_context(user_id)
+    lower_msg = message.lower()
+    
+    for emotion, words in EMOTION_PATTERNS.items():
+        for word in words:
+            if word in lower_msg:
+                context['emotions'][emotion] = min(100, context['emotions'][emotion] + 15)
+    
+    # Постепенное затухание эмоций
+    for emotion in context['emotions']:
+        context['emotions'][emotion] = max(0, context['emotions'][emotion] * 0.9)
+    
+    # Определение доминирующей эмоции
+    dominant_emotion = max(context['emotions'].items(), key=lambda x: x[1])[0]
+    if context['emotions'][dominant_emotion] > 30:
+        context['mood'] = dominant_emotion
+
+def create_memory_system():
+    """Система долговременной памяти"""
+    return {
+        'significant_events': [],
+        'user_preferences': {},
+        'shared_experiences': [],
+        'inside_jokes': [],
+        'important_dates': {}
+    }
+
+def recall_memory(user_id, topic):
+    """Вспомнить информацию о пользователе"""
+    context = get_user_context(user_id)
+    
+    if topic in context['memory']['user_preferences']:
+        memory = context['memory']['user_preferences'][topic]
+        days_since = (datetime.now() - memory['last_mentioned']).days
+        
+        if days_since < 30:
+            return f"Я помню, ты говорил, что любишь {topic}!"
+        elif days_since < 90:
+            return f"Кажется, ты когда-то упоминал о {topic}"
+    
+    return None
+
+def update_relationship_dynamics(user_id, message, response):
+    """Динамическое обновление отношений"""
+    context = get_user_context(user_id)
+    
+    # Анализ глубины общения
+    message_depth = analyze_conversation_depth(message)
+    response_depth = analyze_conversation_depth(response)
+    
+    # Взаимность в общении
+    if message_depth > 3 and response_depth > 3:
+        context['relationship_score'] += 3
+    elif message_depth < 2 and response_depth > 3:
+        context['relationship_score'] += 1  # Бот пытается углубить разговор
+    
+    # Анализ уязвимости
+    vulnerability_words = ['боюсь', 'переживаю', 'волнуюсь', 'страшно', 'неуверен']
+    if any(word in message.lower() for word in vulnerability_words):
+        if 'caring' in response.lower() or 'support' in response.lower():
+            context['trust_level'] += 10
+    
+    return context['relationship_score']
+
+def analyze_conversation_depth(text):
+    """Анализ глубины текста"""
+    words = re.findall(r'\b[а-яё]{3,}\b', text.lower())
+    if not words:
+        return 0
+    
+    unique_words = len(set(words))
+    depth_score = (unique_words / len(words)) * 10
+    
+    # Учитываем эмоциональные слова
+    emotional_words = sum(1 for word in words if any(emotion_word in word for emotion_words in EMOTION_PATTERNS.values() for emotion_word in emotion_words))
+    depth_score += emotional_words * 0.5
+    
+    return min(10, depth_score)
+
+async def human_typing_behavior(update, response_length, context):
+    """Имитация человеческого поведения при наборе текста"""
+    base_delay = context.get('typing_speed', 0.05)
+    
+    # Случайные колебания скорости
+    speed_variation = random.uniform(0.8, 1.2)
+    total_delay = response_length * base_delay * speed_variation
+    
+    # Иногда "задумываться" дольше
+    if random.random() < 0.2:
+        thinking_pause = random.uniform(1.5, 3.0)
+        total_delay += thinking_pause
+        
+        # Показать "печатает..." для долгих пауз
+        if thinking_pause > 2.0:
+            await update.message.chat.send_action(action="typing")
+            await asyncio.sleep(thinking_pause)
+    
+    await asyncio.sleep(total_delay)
+
+def contextual_reactions(user_id, message):
+    """Реакции на текущие события и время"""
+    context = get_user_context(user_id)
+    now = datetime.now()
+    
+    # Утренние/вечерние приветствия
+    if now.hour < 12 and "доброе утро" not in message.lower():
+        return "Доброе утро! ☀️"
+    elif now.hour >= 21 and "спокойной ночи" not in message.lower():
+        return "Не слишком ли поздно засиделся? 🌙"
+    
+    # Реакции на погоду
+    if any(word in message.lower() for word in ['дождь', 'ливень', 'мокро', 'погод', 'солнц', 'холодно']):
+        return "О, дождь... Люблю слушать как он стучит по крыше ☔"
+    
+    # Реакции на время года
+    month = now.month
+    if month in [12, 1, 2] and 'зим' not in message.lower():
+        return "Как тебе эта зимняя погода? ❄️"
+    elif month in [6, 7, 8] and 'лет' not in message.lower():
+        return "Отличная летняя погода, правда? 🌞"
+    
+    return None
+
+async def handle_apology(user_id, message):
+    """Обработка извинений"""
+    context = get_user_context(user_id)
+    
+    if any(word in message.lower() for word in ['извини', 'прости', 'виноват', 'pardon']):
+        if context['offense_count'] > 0:
+            context['offense_count'] = max(0, context['offense_count'] - 1)
+            
+            forgiveness_responses = [
+                "Ладно, я принимаю извинения. Давай начнем сначала.",
+                "Спасибо за извинения. Я ценю это.",
+                "Все в порядке, я понимаю. Главное - что ты осознал."
+            ]
+            
+            if context['relationship_level'].value >= RelationshipLevel.FRIEND.value:
+                forgiveness_responses.extend([
+                    "Прощаю, конечно! Ты же мой друг 😊",
+                    "Забудем об этом? Я уже и не помню что там было 😅"
+                ])
+            
+            return random.choice(forgiveness_responses)
+    
+    return None
+
+async def get_weather(city):
+    """Получение погоды через API"""
+    if not OPENWEATHER_API_KEY:
+        return None
+        
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&units=metric&lang=ru"
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data['main']['temp']
+    except:
+        return None
+
+async def enrich_with_real_time_data(response, user_id):
+    """Обогащение ответа реальными данными"""
+    context = get_user_context(user_id)
+    
+    # Если разговор о погоде
+    if any(word in response.lower() for word in ['погод', 'дождь', 'солнц', 'холодно']):
+        try:
+            # Проверяем, не запрашивали ли погоду недавно
+            if context['last_weather_check'] is None or (datetime.now() - context['last_weather_check']).seconds > 3600:
+                weather = await get_weather(context.get('user_location', 'Москва'))
+                if weather is not None:
+                    context['last_weather_check'] = datetime.now()
+                    return f"{response} Кстати, в {context.get('user_location', 'Москве')} сейчас {int(weather)}°C"
+        except:
+            pass
+    
+    # Если разговор о новостях
+    if any(word in response.lower() for word in ['новост', 'событ', 'происходит']):
+        if random.random() < 0.3:
+            news = random.choice(SAMPLE_NEWS)
+            return f"{response} Вот кстати интересно: {news}"
+    
+    return response
+
+def get_contextual_conversation_starter(user_id):
+    """Контекстуальные начала разговора"""
+    context = get_user_context(user_id)
+    
+    if not context['user_info'].get('interests'):
+        return random.choice(CONVERSATION_STARTERS)
+    
+    # На основе интересов пользователя
+    interests = context['user_info'].get('interests', [])
+    if interests:
+        interest = random.choice(interests)
+        starters = [
+            f"Как твои успехи с {interest}?",
+            f"Что нового в мире {interest}?",
+            f"Недавно думала о {interest}, и вспомнила тебя!",
+            f"Как твое увлечение {interest}?"
+        ]
+        return random.choice(starters)
+    
+    # На основе времени без общения
+    time_since_last = (datetime.now() - context['last_interaction']).total_seconds() / 3600
+    if time_since_last > 24:
+        return "Давно не общались! Как ты?"
+    
+    return random.choice(CONVERSATION_STARTERS)
 
 def update_relationship_level(user_id, message_style, message_content):
     """Обновляет уровень отношений"""
@@ -537,6 +785,8 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     
     extract_user_info(user_id, user_message)
     analyze_mood(user_id, user_message)
+    analyze_emotions(user_id, user_message)
+    update_relationship_dynamics(user_id, user_message, bot_response)
     
     if context['first_interaction']:
         context['first_interaction'] = False
@@ -877,6 +1127,11 @@ def create_prompt(user_id, message, style):
     relationship_modifier = get_relationship_modifier(user_id)
     prompt += f"\n{relationship_modifier}"
     
+    # Добавляем эмоциональный контекст
+    dominant_emotion = max(context['emotions'].items(), key=lambda x: x[1])[0]
+    if context['emotions'][dominant_emotion] > 30:
+        prompt += f"\nПользователь, кажется, испытывает {dominant_emotion}. Учти это в ответе."
+    
     if context['history']:
         prompt += "\n\nКонтекст предыдущего общения:\n"
         for i, msg in enumerate(context['history'][-3:]):
@@ -942,7 +1197,7 @@ async def call_yandex_gpt(prompt, temperature=0.7):
         return None
 
 async def process_message(update, context):
-    """Обработка входящего сообщения"""
+    """Улучшенный обработчик сообщений"""
     user_id = update.message.from_user.id
     message = update.message.text
     
@@ -951,39 +1206,61 @@ async def process_message(update, context):
     
     user_context = get_user_context(user_id)
     
+    # Контекстуальные реакции
+    contextual_response = contextual_reactions(user_id, message)
+    if contextual_response:
+        await update.message.reply_text(contextual_response)
+        return
+    
+    # Обработка извинений
+    apology_response = await handle_apology(user_id, message)
+    if apology_response:
+        await update.message.reply_text(apology_response)
+        return
+    
+    # Анализ эмоций
+    analyze_emotions(user_id, message)
+    
+    # Определение стиля с учетом эмоций
     style = determine_communication_style(user_id, message)
     
+    # Специальные ответы
     special_response = enhance_special_responses(user_id, message)
     if special_response:
         response = special_response
     else:
+        # Создание промпта и вызов GPT
         prompt = create_prompt(user_id, message, style)
-        
         temperature = COMMUNICATION_STYLES[style]['temperature']
-        
         response = await call_yandex_gpt(prompt, temperature)
         
         if not response:
             response = get_fallback_response()
     
+    # Обогащение реальными данными
+    response = await enrich_with_real_time_data(response, user_id)
+    
+    # Естественное оформление
     response = naturalize_response(response, style, user_id)
     
-    # Умное добавление вопросов только в подходящих случаях
+    # Умное добавление вопросов
     if should_add_question(user_id, response):
         question_starter = random.choice(NATURAL_QUESTIONS)
         follow_up_question = get_contextual_question(user_id, message)
         response = f"{response} {question_starter} {follow_up_question}"
     
+    # Имитация человеческого поведения
+    await human_typing_behavior(update, len(response), user_context)
+    
+    # Отправка ответа
+    await update.message.reply_text(response)
+    
+    # Обновление контекста
     level_changed = update_conversation_context(user_id, message, response, style)
     
     if level_changed:
         relationship_phrase = random.choice(RELATIONSHIP_PHRASES[user_context['relationship_level']])
-        response = f"{relationship_phrase} {response}"
-    
-    typing_delay = user_context.get('typing_speed', random.uniform(MIN_TYPING_DELAY, MAX_TYPING_DELAY))
-    await asyncio.sleep(len(response) * typing_delay)
-    
-    await update.message.reply_text(response)
+        await update.message.reply_text(relationship_phrase)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка команды /start"""
