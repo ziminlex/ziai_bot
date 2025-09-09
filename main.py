@@ -401,7 +401,7 @@ class MemorySystem:
         
         return template.format(topic)
 
-lass EmotionalIntelligence:
+Class EmotionalIntelligence:
     """Эмоциональный интеллект"""
     
     def __init__(self):
@@ -1052,5 +1052,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
