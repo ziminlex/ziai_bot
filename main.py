@@ -254,34 +254,46 @@ class HumanConversationSimulator:
     
     def _select_typing_profile(self, deep_context):
         """Выбор профиля печатания"""
-        volatility = deep_context['emotional_arc']['volatility']
-        if volatility > 0.3:
-            return 'emotional'
-        elif deep_context['conversation_rhythm']['pace'] == 'fast':
-            return 'fast'
-        else:
-            return random.choice(['normal', 'thoughtful'])
+    # Безопасное извлечение значений с значениями по умолчанию
+    emotional_arc = deep_context.get('emotional_arc', {})
+    conversation_rhythm = deep_context.get('conversation_rhythm', {})
+    
+    volatility = emotional_arc.get('volatility', 0.1)  # значение по умолчанию
+    pace = conversation_rhythm.get('pace', 'medium')   # значение по умолчанию
+    
+    if volatility > 0.3:
+        return 'emotional'
+    elif pace == 'fast':
+        return 'fast'
+    else:
+        return random.choice(['normal', 'thoughtful'])
     
     def _calculate_thinking_time(self, message, deep_context, history):
         """Время на обдумывание"""
-        base_time = random.uniform(0.5, 2.0)
-        
-        # Множители сложности
-        complexity = 1.0
-        if '?' in message:
+    base_time = random.uniform(0.5, 2.0)
+    
+    # Безопасное извлечение значений
+    emotional_arc = deep_context.get('emotional_arc', {})
+    
+    # Множители сложности
+    complexity = 1.0
+    if '?' in message:
+        complexity += 0.5
+    if len(message) > 100:
+        complexity += 0.3
+    
+    # Безопасная проверка volatility
+    volatility = emotional_arc.get('volatility', 0.1)
+    if volatility > 0.2:
+        complexity += 0.4
+    
+    # Учет истории
+    if len(history) > 5:
+        recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
+        if recent_emotional and any(m.get('emotional_score', 0.5) < 0.3 for m in recent_emotional):
             complexity += 0.5
-        if len(message) > 100:
-            complexity += 0.3
-        if deep_context['emotional_arc']['volatility'] > 0.2:
-            complexity += 0.4
-        
-        # Учет истории
-        if len(history) > 5:
-            recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
-            if recent_emotional and any(m['emotional_score'] < 0.3 for m in recent_emotional):
-                complexity += 0.5
-        
-        return base_time * complexity
+    
+    return base_time * complexity
     
     def _calculate_typing_time(self, message, profile, context):
         """Время печатания"""
@@ -328,14 +340,19 @@ def _select_conversation_style(self, deep_context):
     if not deep_context or 'emotional_arc' not in deep_context:
         return 'balanced'
     
-    mood = deep_context['emotional_arc'].get('current_mood', 0.5)
-    pace = deep_context['conversation_rhythm'].get('pace', 'medium') if 'conversation_rhythm' in deep_context else 'medium'
+    # Безопасное извлечение значений
+    emotional_arc = deep_context.get('emotional_arc', {})
+    conversation_rhythm = deep_context.get('conversation_rhythm', {})
+    user_patterns = deep_context.get('user_patterns', {})
+    
+    mood = emotional_arc.get('current_mood', 0.5)
+    pace = conversation_rhythm.get('pace', 'medium')
     
     if mood > 0.7 and pace == 'fast':
         return 'active'
     elif mood < 0.3:
         return 'reactive'
-    elif deep_context.get('user_patterns', {}).get('response_style') == 'detailed':
+    elif user_patterns.get('response_style') == 'detailed':
         return 'deep'
     else:
         return 'balanced'
@@ -352,24 +369,30 @@ def _select_conversation_style(self, deep_context):
     
     def _calculate_thinking_time(self, message, deep_context, history):
         """Время на обдумывание"""
-        base_time = random.uniform(0.5, 2.0)
-        
-        # Множители сложности
-        complexity = 1.0
-        if '?' in message:
+    base_time = random.uniform(0.5, 2.0)
+    
+    # Безопасное извлечение значений
+    emotional_arc = deep_context.get('emotional_arc', {})
+    
+    # Множители сложности
+    complexity = 1.0
+    if '?' in message:
+        complexity += 0.5
+    if len(message) > 100:
+        complexity += 0.3
+    
+    # Безопасная проверка volatility
+    volatility = emotional_arc.get('volatility', 0.1)
+    if volatility > 0.2:
+        complexity += 0.4
+    
+    # Учет истории
+    if len(history) > 5:
+        recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
+        if recent_emotional and any(m.get('emotional_score', 0.5) < 0.3 for m in recent_emotional):
             complexity += 0.5
-        if len(message) > 100:
-            complexity += 0.3
-        if deep_context['emotional_arc']['volatility'] > 0.2:
-            complexity += 0.4
-        
-        # Учет истории
-        if len(history) > 5:
-            recent_emotional = [m for m in history[-3:] if 'emotional_score' in m]
-            if recent_emotional and any(m['emotional_score'] < 0.3 for m in recent_emotional):
-                complexity += 0.5
-        
-        return base_time * complexity
+    
+    return base_time * complexity
     
     def _calculate_typing_time(self, message, profile, context):
         """Время печатания"""
@@ -1150,6 +1173,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
