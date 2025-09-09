@@ -26,6 +26,9 @@ import numpy as np
 import humanize
 from dateutil import parser
 import uuid
+from typing import Dict, Any, List, Optional
+import hashlib
+import json
 
 # Настройка логирования
 logging.basicConfig(
@@ -504,6 +507,285 @@ conversation_simulator = HumanConversationSimulator()
 memory_system = MemorySystem()
 emotional_intelligence = EmotionalIntelligence()
 
+def get_user_context(user_id: int) -> Dict[str, Any]:
+    """Получение контекста пользователя из базы данных"""
+    try:
+        conn = sqlite3.connect("bot_users.db")
+        cursor = conn.cursor()
+        
+        # Получаем базовую информацию о пользователе
+        cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        user_data = cursor.fetchone()
+        
+        # Получаем историю сообщений
+        cursor.execute("""
+            SELECT message_text, bot_response, timestamp, emotional_score, topic_tags 
+            FROM messages 
+            WHERE user_id = ? 
+            ORDER BY timestamp DESC 
+            LIMIT 20
+        """, (user_id,))
+        messages = cursor.fetchall()
+        
+        # Получаем контекст беседы
+        cursor.execute("SELECT * FROM conversation_context WHERE user_id = ?", (user_id,))
+        context_data = cursor.fetchone()
+        
+        conn.close()
+        
+        # Формируем контекст
+        context = {
+            'user_id': user_id,
+            'history': [],
+            'messages_count': 0,
+            'last_interaction': None
+        }
+        
+        if user_data:
+            context['messages_count'] = user_data[6] if len(user_data) > 6 else 0
+            context['last_interaction'] = user_data[5] if len(user_data) > 5 else None
+        
+        # Добавляем историю сообщений
+        for msg in messages:
+            context['history'].append({
+                'user': msg[0],
+                'bot': msg[1],
+                'timestamp': datetime.fromisoformat(msg[2]) if isinstance(msg[2], str) else msg[2],
+                'emotional_score': msg[3],
+                'topics': json.loads(msg[4]) if msg[4] else []
+            })
+        
+        # Добавляем данные контекста
+        if context_data:
+            try:
+                context['deep_context'] = {
+                    'current_topics': json.loads(context_data[1]) if context_data[1] else {},
+                    'historical_topics': json.loads(context_data[2]) if context_data[2] else {},
+                    'emotional_arc': json.loads(context_data[3]) if context_data[3] else {},
+                    'conversation_rhythm': json.loads(context_data[4]) if context_data[4] else {},
+                    'user_patterns': json.loads(context_data[5]) if context_data[5] else {},
+                    'unfinished_threads': json.loads(context_data[6]) if context_data[6] else {}
+                }
+            except json.JSONDecodeError:
+                context['deep_context'] = {}
+        
+        return context
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения контекста пользователя {user_id}: {e}")
+        return {'user_id': user_id, 'history': [], 'messages_count': 0}
+
+def save_complete_context(user_id: int, user_message: str, bot_response: str, 
+                         deep_context: Dict[str, Any], emotional_state: Dict[str, Any],
+                         response_metrics: Dict[str, Any], memory_reference: Optional[str] = None):
+    """Сохранение полного контекста беседы"""
+    try:
+        conn = sqlite3.connect("bot_users.db")
+        cursor = conn.cursor()
+        
+        # Создаем хэш контекста для уникальности
+        context_hash = hashlib.md5(
+            f"{user_id}{user_message}{datetime.now().timestamp()}".encode()
+        ).hexdigest()
+        
+        # Извлекаем темы из сообщения
+        topics = list(deep_context.get('current_topics', {}).keys())[:5]
+        
+        # Обновляем или создаем пользователя
+        cursor.execute("""
+            INSERT OR IGNORE INTO users (user_id, created_at, last_interaction) 
+            VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """, (user_id,))
+        
+        cursor.execute("""
+            UPDATE users SET last_interaction = CURRENT_TIMESTAMP WHERE user_id = ?
+        """, (user_id,))
+        
+        # Сохраняем сообщение
+        cursor.execute("""
+            INSERT INTO messages 
+            (user_id, message_text, bot_response, message_type, emotions, style, 
+             typing_time, thinking_time, context_hash, emotional_score, topic_tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id, 
+            user_message, 
+            bot_response,
+            'text',
+            json.dumps(emotional_state),
+            response_metrics.get('conversation_style', 'balanced'),
+            response_metrics.get('typing_time', 0),
+            response_metrics.get('thinking_time', 0),
+            context_hash,
+            emotional_state.get('intensity', 0.5),
+            json.dumps(topics)
+        ))
+        
+        # Сохраняем контекст беседы
+        cursor.execute("""
+            INSERT OR REPLACE INTO conversation_context 
+            (user_id, current_topics, historical_topics, emotional_arc, 
+             conversation_rhythm, user_patterns, unfinished_threads, last_deep_analysis)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (
+            user_id,
+            json.dumps(deep_context.get('current_topics', {})),
+            json.dumps(deep_context.get('historical_topics', {})),
+            json.dumps(deep_context.get('emotional_arc', {})),
+            json.dumps(deep_context.get('conversation_rhythm', {})),
+            json.dumps(deep_context.get('user_patterns', {})),
+            json.dumps(deep_context.get('unfinished_threads', {}))
+        ))
+        
+        # Сохраняем воспоминание, если есть
+        if memory_reference:
+            cursor.execute("""
+                INSERT INTO conversation_memory 
+                (user_id, memory_type, content, emotional_weight)
+                VALUES (?, 'associative', ?, ?)
+            """, (user_id, memory_reference, emotional_state.get('intensity', 0.5)))
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        logger.error(f"Ошибка сохранения контекста для пользователя {user_id}: {e}")
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start"""
+    user = update.effective_user
+    welcome_text = f"""
+👋 Привет, {user.first_name}!
+
+Я бот с глубоким контекстным анализом. Я запоминаю наши разговоры и стараюсь вести беседу как живой человек.
+
+Что умею:
+• Запоминать темы наших разговоров
+• Анализировать контекст беседы
+• Проявлять эмпатию и понимание
+• Вести естественную человеческую беседу
+
+Просто напиши мне что-нибудь, и мы начнем общаться!
+
+Также доступны команды:
+/context - показать текущий контекст
+/memory - показать память о беседах
+"""
+    await update.message.reply_text(welcome_text)
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    logger.error(f"Ошибка при обработке сообщения: {context.error}")
+    
+    if update and update.message:
+        try:
+            await update.message.reply_text(
+                "⚠️ Произошла ошибка при обработке сообщения. Попробуйте еще раз позже."
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
+
+# ДОБАВЬТЕ ЭТУ ЧАСТЬ ПЕРЕД КЛАССОМ UserDatabase
+# ... теперь следует класс UserDatabase ...
+
+class UserDatabase:
+    def __init__(self, db_name="bot_users.db"):
+        self.db_name = db_name
+        self.init_database()
+    
+    def init_database(self):
+        """Инициализация базы данных с расширенной схемой"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        
+        # ... существующий код инициализации базы данных ...
+        
+    # ДОБАВЬТЕ ЭТИ МЕТОДЫ В КЛАСС UserDatabase
+    
+    def get_user(self, user_id: int) -> Optional[tuple]:
+        """Получение пользователя по ID"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+            user = cursor.fetchone()
+            conn.close()
+            return user
+        except Exception as e:
+            logger.error(f"Ошибка получения пользователя {user_id}: {e}")
+            return None
+    
+    def create_user(self, user_id: int, username: str = None, 
+                   first_name: str = None, last_name: str = None):
+        """Создание нового пользователя"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO users (user_id, username, first_name, last_name)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                username = excluded.username,
+                first_name = excluded.first_name,
+                last_name = excluded.last_name,
+                last_interaction = CURRENT_TIMESTAMP
+            """, (user_id, username, first_name, last_name))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Ошибка создания пользователя {user_id}: {e}")
+    
+    def update_user_interaction(self, user_id: int):
+        """Обновление времени последнего взаимодействия"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE users SET last_interaction = CURRENT_TIMESTAMP 
+                WHERE user_id = ?
+            """, (user_id,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Ошибка обновления взаимодействия пользователя {user_id}: {e}")
+    
+    def get_user_stats(self, user_id: int) -> Dict[str, Any]:
+        """Получение статистики пользователя"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            
+            # Количество сообщений
+            cursor.execute("SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,))
+            message_count = cursor.fetchone()[0]
+            
+            # Последняя активность
+            cursor.execute("SELECT last_interaction FROM users WHERE user_id = ?", (user_id,))
+            last_interaction = cursor.fetchone()[0]
+            
+            # Популярные темы
+            cursor.execute("""
+                SELECT topic_tags, COUNT(*) as count 
+                FROM messages 
+                WHERE user_id = ? AND topic_tags IS NOT NULL
+                GROUP BY topic_tags 
+                ORDER BY count DESC 
+                LIMIT 5
+            """, (user_id,))
+            popular_topics = cursor.fetchall()
+            
+            conn.close()
+            
+            return {
+                'message_count': message_count,
+                'last_interaction': last_interaction,
+                'popular_topics': popular_topics
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики пользователя {user_id}: {e}")
+            return {}
+
 class UserDatabase:
     def __init__(self, db_name="bot_users.db"):
         self.db_name = db_name
@@ -777,3 +1059,4 @@ async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     main()
+
