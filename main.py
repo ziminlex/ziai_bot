@@ -1,3 +1,4 @@
+import aiohttp
 import os
 import logging
 import requests
@@ -779,7 +780,7 @@ def cache_response(message, user_id, response):
     }
 
 async def call_yandex_gpt(message, user_id, style='neutral'):
-    """Вызывает Yandex GPT API"""
+    """Вызывает Yandex GPT API используя requests"""
     try:
         # Проверяем кэш
         cached_response = get_cached_response(message, user_id)
@@ -826,21 +827,29 @@ async def call_yandex_gpt(message, user_id, style='neutral'):
             "x-folder-id": YANDEX_FOLDER_ID
         }
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(YANDEX_API_URL, json=full_prompt, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    gpt_response = result['result']['alternatives'][0]['message']['text']
-                    
-                    # Кэшируем ответ
-                    cache_response(message, user_id, gpt_response)
-                    
-                    return gpt_response
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Yandex GPT API error: {response.status} - {error_text}")
-                    return "Извини, у меня какие-то проблемы с подключением. Попробуй спросить позже."
+        # Используем синхронный requests с run_in_executor для асинхронности
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, 
+            lambda: requests.post(YANDEX_API_URL, json=full_prompt, headers=headers, timeout=10)
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            gpt_response = result['result']['alternatives'][0]['message']['text']
+            
+            # Кэшируем ответ
+            cache_response(message, user_id, gpt_response)
+            
+            return gpt_response
+        else:
+            logger.error(f"Yandex GPT API error: {response.status_code} - {response.text}")
+            return "Извини, у меня какие-то проблемы с подключением. Попробуй спросить позже."
     
+    except requests.exceptions.Timeout:
+        return "Ой, я слишком долго думала... Давай попробуем еще раз?"
+    except requests.exceptions.ConnectionError:
+        return "Похоже, проблемы с интернетом. Проверь соединение!"
     except Exception as e:
         logger.error(f"Error calling Yandex GPT: {e}")
         return "Ой, что-то пошло не так. Давай попробуем еще раз?"
@@ -958,3 +967,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
