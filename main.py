@@ -1,3 +1,7 @@
+import sqlite3
+import json
+from datetime import datetime
+from pathlib import Path
 import os
 import logging
 import requests
@@ -14,6 +18,224 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes, Com
 from telegram.error import Conflict
 from functools import lru_cache
 from enum import Enum
+
+class UserDatabase:
+    def __init__(self, db_name="bot_users.db"):
+        self.db_name = db_name
+        self.init_database()
+    
+    def init_database(self):
+        """Инициализация базы данных"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        
+        # Таблица пользователей
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_interaction DATETIME
+            )
+        ''')
+        
+        # Таблица сообщений
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                message_text TEXT,
+                bot_response TEXT,
+                message_type TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                emotions TEXT,
+                style TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        # Таблица контекста
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_context (
+                user_id INTEGER PRIMARY KEY,
+                relationship_level INTEGER,
+                relationship_score INTEGER,
+                trust_level REAL,
+                mood TEXT,
+                topics TEXT,
+                user_info TEXT,
+                last_style TEXT,
+                mat_count INTEGER,
+                offense_count INTEGER,
+                affection_level REAL,
+                messages_count INTEGER,
+                positive_interactions INTEGER,
+                negative_interactions INTEGER,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("✅ База данных инициализирована")
+    
+    def save_user_message(self, user_id, username, first_name, last_name, message_text, 
+                         bot_response, style, emotions):
+        """Сохранение сообщения пользователя"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            
+            # Сохраняем/обновляем пользователя
+            cursor.execute('''
+                INSERT OR REPLACE INTO users (user_id, username, first_name, last_name, last_interaction)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, username, first_name, last_name, datetime.now()))
+            
+            # Сохраняем сообщение
+            cursor.execute('''
+                INSERT INTO messages (user_id, message_text, bot_response, message_type, emotions, style)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, message_text, bot_response, 'text', json.dumps(emotions), style))
+            
+            conn.commit()
+            logger.debug(f"💾 Сохранено сообщение пользователя {user_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения сообщения: {e}")
+        finally:
+            conn.close()
+    
+    def get_user_messages(self, user_id, limit=10):
+        """Получение последних сообщений пользователя"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT message_text, bot_response, timestamp, style 
+                FROM messages 
+                WHERE user_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            ''', (user_id, limit))
+            
+            messages = cursor.fetchall()
+            return [{
+                'user': msg[0],
+                'bot': msg[1],
+                'timestamp': datetime.strptime(msg[2], '%Y-%m-%d %H:%M:%S') if isinstance(msg[2], str) else msg[2],
+                'style': msg[3]
+            } for msg in reversed(messages)]
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки сообщений: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def save_user_context(self, user_id, context):
+        """Сохранение контекста пользователя"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            
+            # Преобразуем RelationshipLevel в число
+            relationship_level = context.get('relationship_level')
+            if hasattr(relationship_level, 'value'):
+                relationship_level = relationship_level.value
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO user_context 
+                (user_id, relationship_level, relationship_score, trust_level, mood, topics, 
+                 user_info, last_style, mat_count, offense_count, affection_level, 
+                 messages_count, positive_interactions, negative_interactions)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_id,
+                relationship_level,
+                context.get('relationship_score', 0),
+                context.get('trust_level', 0),
+                context.get('mood', 'neutral'),
+                json.dumps(context.get('topics', [])),
+                json.dumps(context.get('user_info', {})),
+                context.get('last_style', 'neutral'),
+                context.get('mat_count', 0),
+                context.get('offense_count', 0),
+                context.get('affection_level', 0),
+                context.get('messages_count', 0),
+                context.get('positive_interactions', 0),
+                context.get('negative_interactions', 0)
+            ))
+            
+            conn.commit()
+            logger.debug(f"💾 Сохранен контекст пользователя {user_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения контекста: {e}")
+        finally:
+            conn.close()
+    
+    def load_user_context(self, user_id):
+        """Загрузка контекста пользователя"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT * FROM user_context WHERE user_id = ?', (user_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    'relationship_level': RelationshipLevel(result[1]),
+                    'relationship_score': result[2],
+                    'trust_level': result[3],
+                    'mood': result[4],
+                    'topics': json.loads(result[5]) if result[5] else [],
+                    'user_info': json.loads(result[6]) if result[6] else {},
+                    'last_style': result[7],
+                    'mat_count': result[8],
+                    'offense_count': result[9],
+                    'affection_level': result[10],
+                    'messages_count': result[11],
+                    'positive_interactions': result[12],
+                    'negative_interactions': result[13]
+                }
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки контекста: {e}")
+            return None
+        finally:
+            conn.close()
+    
+    def get_user_stats(self, user_id):
+        """Получение статистики пользователя"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            
+            # Количество сообщений
+            cursor.execute('SELECT COUNT(*) FROM messages WHERE user_id = ?', (user_id,))
+            total_messages = cursor.fetchone()[0]
+            
+            # Последняя активность
+            cursor.execute('SELECT MAX(timestamp) FROM messages WHERE user_id = ?', (user_id,))
+            last_activity = cursor.fetchone()[0]
+            
+            return {
+                'total_messages': total_messages,
+                'last_activity': last_activity
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения статистики: {e}")
+            return {}
+        finally:
+            conn.close()
 
 # Настройка логирования
 logging.basicConfig(
@@ -89,7 +311,7 @@ BASE_SYSTEM_PROMPT = f"""
 У тебя есть {JULIA_BIO['pets']}. Ты {', '.join(JULIA_BIO['character_traits'][:2])}.
 Любишь {', '.join(JULIA_BIO['hobbies'][:2])}. 
 
-Ты современная девушка, понимаешь молодежный слан и жаргон, но сама говоришь достаточно культурно.
+Ты современная девушка, понимаешь молодежный сленг и жаргон, но сама говоришь достаточно культурно.
 Можешь понять неформальные выражения и ответить на них адекватно, без ханжества, но и без пошлости.
 
 ВАЖНО: Не задавай слишком много вопросов. Задавай вопросы только когда это уместно и естественно.
@@ -364,6 +586,9 @@ async def cleanup_old_contexts():
         if removed_count > 0:
             logger.info(f"Очищено {removed_count} старых контекстов")
 
+# Глобальная переменная для базы данных
+user_db = None
+
 def enhance_special_responses(user_id, message):
     """Улучшенные ответы с учетом контекста"""
     context = get_user_context(user_id)
@@ -405,38 +630,68 @@ def enhance_special_responses(user_id, message):
     return None
 
 def get_user_context(user_id):
-    """Получает контекст пользователя"""
-    if user_id not in conversation_context:
+    """Получает контекст пользователя из базы данных"""
+    global user_db
+    
+    # Если пользователь уже в кэше
+    if user_id in conversation_context:
+        return conversation_context[user_id]
+    
+    # Пробуем загрузить из базы
+    saved_context = user_db.load_user_context(user_id)
+    
+    if saved_context:
+        # Загружаем историю сообщений
+        history = user_db.get_user_messages(user_id, 10)
+        
+        # Создаем полный контекст
         conversation_context[user_id] = {
-            'history': [],
-            'last_style': 'neutral',
-            'user_info': {},
-            'last_interaction': datetime.now(),
-            'topics': [],
-            'mood': 'neutral',
-            'name_used_count': 0,
-            'last_name_usage': None,
-            'first_interaction': True,
-            'user_name': None,
-            'typing_speed': random.uniform(0.03, 0.06),
-            'conversation_depth': 0,
-            'mat_count': 0,
-            'relationship_level': RelationshipLevel.STRANGER,
-            'relationship_score': 0,
-            'trust_level': 0,
-            'offense_count': 0,
-            'last_offense': None,
-            'affection_level': 0,
-            'messages_count': 0,
-            'positive_interactions': 0,
-            'negative_interactions': 0,
-            'discussed_topics': {},
-            'user_preferences': {},
-            'inside_jokes': [],
-            'unfinished_topics': [],
-            'avg_message_length': 0,
-            'emoji_frequency': 0
+            **get_default_context(),
+            **saved_context,
+            'history': history,
+            'last_interaction': datetime.now()
         }
+        logger.info(f"📂 Загружен контекст пользователя {user_id} из базы")
+        return conversation_context[user_id]
+    else:
+        # Создаем новый контекст
+        conversation_context[user_id] = get_default_context()
+        logger.info(f"🆕 Создан новый контекст для пользователя {user_id}")
+        return conversation_context[user_id]
+
+def get_default_context():
+    """Возвращает контекст по умолчанию"""
+    return {
+        'history': [],
+        'last_style': 'neutral',
+        'user_info': {},
+        'last_interaction': datetime.now(),
+        'topics': [],
+        'mood': 'neutral',
+        'name_used_count': 0,
+        'last_name_usage': None,
+        'first_interaction': True,
+        'user_name': None,
+        'typing_speed': random.uniform(0.03, 0.06),
+        'conversation_depth': 0,
+        'mat_count': 0,
+        'relationship_level': RelationshipLevel.STRANGER,
+        'relationship_score': 0,
+        'trust_level': 0,
+        'offense_count': 0,
+        'last_offense': None,
+        'affection_level': 0,
+        'messages_count': 0,
+        'positive_interactions': 0,
+        'negative_interactions': 0,
+        'discussed_topics': {},
+        'user_preferences': {},
+        'inside_jokes': [],
+        'unfinished_topics': [],
+        'avg_message_length': 0,
+        'emoji_frequency': 0,
+        'emotions': {emotion: 0 for emotion in EMOTION_PATTERNS.keys()}
+    }
     return conversation_context[user_id]
 
 def update_relationship_level(user_id, message_style, message_content):
@@ -516,9 +771,12 @@ def get_relationship_modifier(user_id):
     return modifiers[level]
 
 def update_conversation_context(user_id, user_message, bot_response, style):
-    """Обновляет контекст беседы"""
+    """Обновляет контекст беседы и сохраняет в базу"""
+    global user_db
+    
     context = get_user_context(user_id)
     
+    # Обновляем историю
     context['history'].append({
         'user': user_message,
         'bot': bot_response,
@@ -529,6 +787,22 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     if len(context['history']) > 10:
         context['history'] = context['history'][-10:]
     
+    # Сохраняем сообщение в базу
+    user_info = context.get('user_info', {})
+    user_db.save_user_message(
+        user_id=user_id,
+        username=user_info.get('username'),
+        first_name=user_info.get('first_name'),
+        last_name=user_info.get('last_name'),
+        message_text=user_message,
+        bot_response=bot_response,
+        style=style,
+        emotions=context.get('emotions', {})
+    )
+    
+    # Сохраняем контекст
+    user_db.save_user_context(user_id, context)
+    
     context['last_style'] = style
     context['last_interaction'] = datetime.now()
     context['conversation_depth'] += 1
@@ -537,11 +811,29 @@ def update_conversation_context(user_id, user_message, bot_response, style):
     
     extract_user_info(user_id, user_message)
     analyze_mood(user_id, user_message)
+    analyze_emotions(user_id, user_message)
     
     if context['first_interaction']:
         context['first_interaction'] = False
     
     return level_changed
+
+def extract_user_info_from_update(user_id, update):
+    """Извлекает информацию о пользователе из update"""
+    context = get_user_context(user_id)
+    
+    user = update.message.from_user
+    if user:
+        context['user_info'] = {
+            'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'language_code': user.language_code,
+            'is_premium': getattr(user, 'is_premium', False)
+        }
+    
+    # Сохраняем в базу
+    user_db.save_user_context(user_id, context)
 
 def analyze_user_communication_style(user_id, message):
     """Анализирует стиль общения пользователя"""
@@ -942,9 +1234,12 @@ async def call_yandex_gpt(prompt, temperature=0.7):
         return None
 
 async def process_message(update, context):
-    """Обработка входящего сообщения"""
+     """Обработка входящего сообщения"""
     user_id = update.message.from_user.id
     message = update.message.text
+    
+    # Извлекаем информацию о пользователе
+    extract_user_info_from_update(user_id, update)
     
     if not message or message.strip() == "":
         return
@@ -982,6 +1277,37 @@ async def process_message(update, context):
     
     typing_delay = user_context.get('typing_speed', random.uniform(MIN_TYPING_DELAY, MAX_TYPING_DELAY))
     await asyncio.sleep(len(response) * typing_delay)
+    
+    await update.message.reply_text(response)
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для получения статистики"""
+    user_id = update.message.from_user.id
+    stats = user_db.get_user_stats(user_id)
+    user_context = get_user_context(user_id)
+    
+    response = f"📊 Ваша статистика:\n\n"
+    response += f"• Сообщений: {stats['total_messages']}\n"
+    response += f"• Уровень отношений: {user_context['relationship_level'].name}\n"
+    response += f"• Доверие: {user_context['trust_level']:.1f}%\n"
+    response += f"• Настроение: {user_context['mood']}\n"
+    response += f"• Последняя активность: {stats['last_activity']}\n"
+    
+    await update.message.reply_text(response)
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для просмотра истории"""
+    user_id = update.message.from_user.id
+    messages = user_db.get_user_messages(user_id, 5)
+    
+    if not messages:
+        await update.message.reply_text("📝 История сообщений пуста")
+        return
+    
+    response = "📝 Последние сообщения:\n\n"
+    for i, msg in enumerate(messages, 1):
+        response += f"{i}. Вы: {msg['user'][:50]}...\n"
+        response += f"   Я: {msg['bot'][:50]}...\n\n"
     
     await update.message.reply_text(response)
 
@@ -1040,8 +1366,28 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(random.choice(responses))
 
+async def periodic_context_save():
+    """Периодическое сохранение контекста в базу"""
+    while True:
+        await asyncio.sleep(300)  # Сохраняем каждые 5 минут
+        
+        for user_id, context in list(conversation_context.items()):
+            try:
+                user_db.save_user_context(user_id, context)
+            except Exception as e:
+                logger.error(f"❌ Ошибка периодического сохранения: {e}")
+        
+        logger.debug("💾 Периодическое сохранение контекста выполнено")
+
 def main():
+    def main():
     """Основная функция"""
+    global user_db
+    
+    # Инициализация базы данных
+    user_db = UserDatabase()
+    logger.info("🗄️ База данных подключена")
+    
     if not all([TELEGRAM_BOT_TOKEN, YANDEX_API_KEY, YANDEX_FOLDER_ID]):
         logger.error("Не все переменные окружения установлены!")
         logger.error("Проверьте: TELEGRAM_BOT_TOKEN, YANDEX_API_KEY, YANDEX_FOLDER_ID")
@@ -1054,6 +1400,8 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("reset", reset_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("history", history_command)
     
     # Добавляем обработчики медиа
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -1061,7 +1409,8 @@ def main():
     
     # Добавляем обработчик текстовых сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message))
-    
+    asyncio.get_event_loop().create_task(periodic_context_save())
+       
     # Запускаем фоновую задачу очистки
     asyncio.get_event_loop().create_task(cleanup_old_contexts())
     
@@ -1071,3 +1420,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
