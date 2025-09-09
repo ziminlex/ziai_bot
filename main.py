@@ -979,35 +979,6 @@ async def generate_ai_response(prompt, style):
         logger.error(f"Ошибка Yandex GPT: {e}")
         return "Извини, я немного запуталась... Можешь повторить?"
 
-def main():
-    """Основная функция"""
-    # Проверка токенов
-    if not TELEGRAM_BOT_TOKEN:
-        logger.error("❌ TELEGRAM_BOT_TOKEN не найден!")
-        return
-        
-    if not all([YANDEX_API_KEY, YANDEX_FOLDER_ID]):
-        logger.error("❌ YANDEX_API_KEY или YANDEX_FOLDER_ID не найдены!")
-        return
-
-    # Инициализация базы данных
-    UserDatabase() # Инициализируем таблицы при старте
-
-    # Создание приложения
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    # Добавление обработчиков
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("context", context_command))
-    application.add_handler(CommandHandler("memory", memory_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message_with_deep_context))
-    application.add_error_handler(error_handler)
-
-    logger.info("🤖 Бот с глубоким контекстным анализом запускается...")
-
-    # Запуск бота
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
 async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать текущий контекст"""
     user_id = update.effective_user.id
@@ -1043,9 +1014,30 @@ async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(response)
 
+def main():
+    """Основная функция"""
+    # Проверка токенов
+    if not TELEGRAM_BOT_TOKEN:
+        logger.error("❌ TELEGRAM_BOT_TOKEN не найден!")
+        return
+    
+    # Инициализация базы данных
+    UserDatabase()
+    
+    # Создание приложения
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # Добавление обработчиков
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("context", context_command))
+    application.add_handler(CommandHandler("memory", memory_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message_with_deep_context))
+    application.add_error_handler(error_handler)
+    
+    logger.info("🤖 Бот с глубоким контекстным анализом запускается...")
+    
+    # Запуск бота
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 if __name__ == "__main__":
     main()
-
-
-
-
