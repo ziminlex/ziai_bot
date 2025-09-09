@@ -260,7 +260,7 @@ class HumanConversationSimulator:
         }
     
     def _select_conversation_style(self, deep_context):
-        """Выбор стиля беседы based on контекста"""
+    """Выбор стиля беседы based on контекста"""
     # Проверяем наличие необходимых ключей в deep_context
     if not deep_context or 'emotional_arc' not in deep_context:
         return 'balanced'
@@ -1060,6 +1060,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
