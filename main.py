@@ -11,6 +11,11 @@ import re
 import random
 import signal
 import sys
+import aiohttp
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
@@ -235,6 +240,38 @@ class UserDatabase:
             return {}
         finally:
             conn.close()
+    
+    def get_database_stats(self):
+        """Получение статистики всей базы данных"""
+        try:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+            
+            # Общая статистика
+            cursor.execute('SELECT COUNT(*) FROM users')
+            total_users = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM messages')
+            total_messages = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(DISTINCT user_id) FROM messages')
+            active_users = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT MAX(timestamp) FROM messages')
+            last_activity = cursor.fetchone()[0]
+            
+            return {
+                'total_users': total_users,
+                'total_messages': total_messages,
+                'active_users': active_users,
+                'last_activity': last_activity
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения статистики БД: {e}")
+            return {}
+        finally:
+            conn.close()
 
 # Настройка логирования
 logging.basicConfig(
@@ -256,12 +293,15 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 
+# Настройки почты для отправки базы данных
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.yandex.ru")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
+EMAIL_USER = os.getenv("EMAIL_USER", "ziminleks@yandex.ru")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+EMAIL_TO = os.getenv("EMAIL_TO", "ziminleks@yandex.ru")
+
 # URL API Yandex GPT
 YANDEX_API_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-
-# Кэш для частых запросов
-request_cache = {}
-CACHE_TIMEOUT = 300
 
 # Контекст беседы для каждого пользователя
 conversation_context = {}
@@ -320,267 +360,62 @@ BASE_SYSTEM_PROMPT = f"""
 Используй имя собеседника только когда это уместно по контексту.
 """
 
-# Словарь жаргонных слова и их нормальных аналогов
-SLANG_DICTIONARY = {
-    'сру': ['иду в туалет', 'занимаюсь делами', 'посещаю уборную'],
-    'писать': ['иду в туалет', 'хочу в туалет', 'нужно в уборную'],
-    'по маленькому': ['в туалет', 'в уборную', 'по нужде'],
-    'по большому': ['в туалет', 'в уборную', 'по серьезному'],
-    'ссать': ['мочиться', 'ходить в туалет'],
-    'пердеть': ['пукать', 'выпускать газы'],
-    'трахаться': ['заниматься сексом', 'быть интимно'],
-    'секс': ['интимная близость', 'любовь'],
-    'жопа': ['попа', 'задница'],
-    'задница': ['пятая точка', 'нижняя часть'],
-    'блять': ['блин', 'черт', 'ой'],
-    'бля': ['блин', 'черт', 'ой'],
-    'хуй': ['нечто', 'что-то', 'штука'],
-    'пизда': ['неприятность', 'проблема', 'ситуация'],
-    'ебанутый': ['странный', 'неадекватный', 'сумасшедший'],
-    'охуенный': ['классный', 'отличный', 'замечательный'],
-    'охуеть': ['удивиться', 'поразиться', 'восхититься'],
-    'пиздец': ['катастрофа', 'конец', 'ужас'],
-    'нахер': ['зачем', 'почему', 'для чего'],
-    'нихуя': ['ничего', 'нисколечко', 'совсем нет'],
-    'заебись': ['отлично', 'замечательно', 'прекрасно'],
-    'мудак': ['нехороший человек', 'грубиян', 'хам'],
-    'падла': ['подлец', 'негодяй', 'плохой человек'],
-    'гондон': ['презерватив', 'контрацептив'],
-    'кончать': ['заканчивать', 'завершать', 'доводить до конца'],
-    'сперма': ['семенная жидкость', 'эякулят'],
-    'манда': ['женские половые органы', 'влагалище'],
-    'член': ['пенис', 'половой орган'],
-    'сиськи': ['грудь', 'молочные железы', 'бюст'],
-    'попа': ['ягодицы', 'зад', 'пятая точка']
-}
+# ... (остальной код остается без изменений до функции main) ...
 
-# Список матерных слов для триггера агрессивной реакции
-MAT_WORDS = [
-    'блять', 'бля', 'блядь', 'блядина', 'блядский', 'блядство',
-    'хуй', 'хуёвый', 'хуёво', 'хуйня', 'хуевый', 'хуево',
-    'пизда', 'пиздец', 'пиздатый', 'пиздецовый', 'пиздос',
-    'ебал', 'ебать', 'ёбнутый', 'ебанутый', 'ебанина',
-    'нахуй', 'нихуя', 'хуя', 'охуеть', 'охуенный',
-    'заебал', 'заебать', 'заебись', 'уебище',
-    'мудак', 'мудозвон', 'мудачина',
-    'падла', 'падлюка', 'гандон', 'гондон',
-    'долбоёb', 'долбаёb', 'dolboeb',
-    'сука', 'сучара', 'сучка',
-    'выебок', 'выебываться',
-    'трахать', 'оттраханный',
-    'конча', 'кончальный',
-    'сперма', 'сперматозоид',
-    'манда', 'мандавожка',
-    'шлюха', 'шлюшка', 'блядушка'
-]
-
-# Стили общения с разной температурой и промптами
-COMMUNICATION_STYLES = {
-    'neutral': {
-        'temperature': 0.4,
-        'prompt': BASE_SYSTEM_PROMPT + "Отвечай прямо и по делу, но дружелюбно."
-    },
-    'friendly': {
-        'temperature': 0.7,
-        'prompt': BASE_SYSTEM_PROMPT + "Отвечай тепло и заинтересованно, можешь использовать легкий юмор и неформальные выражения, но оставайся милой и позитивной."
-    },
-    'sarcastic': {
-        'temperature': 0.8,
-        'prompt': BASE_SYSTEM_PROMPT + "Отвечай с юмором и легкой иронией, подкалывай немного."
-    },
-    'aggressive': {
-        'temperature': 0.9,
-        'prompt': BASE_SYSTEM_PROMPT + "Ты раздражена и сердита. Отвечай резко и прямолинейно."
-    },
-    'flirtatious': {
-        'temperature': 0.7,
-        'prompt': BASE_SYSTEM_PROMPT + "Ты в настроении флиртовать. Отвечай игриво и с намёком."
-    },
-    'technical': {
-        'temperature': 0.3,
-        'prompt': BASE_SYSTEM_PROMPT + "Отвечай профессионально и по делу, как эксперт."
-    },
-    'caring': {
-        'temperature': 0.65,
-        'prompt': BASE_SYSTEM_PROMPT + "Ты заботливая и эмпатичная. Отвечай поддержкой и пониманием."
-    },
-    'angry': {
-        'temperature': 0.95,
-        'prompt': BASE_SYSTEM_PROMPT + """
-        Ты в ярости! Тебе нахамили, использовали матерные слова. 
-        Отвечай агрессивно, прямо, без церемоний. 
-        Можешь использовать резкие выражения, но оставайся в рамках приличий.
-        Покажи, что ты не потерпишь хамства и неуважения.
-        Требуй извинений и уважительного отношения.
+async def send_database_email():
+    """Отправка базы данных на почту"""
+    try:
+        if not all([EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD]):
+            logger.warning("❌ Настройки почты не настроены, пропускаю отправку")
+            return False
+        
+        # Создаем сообщение
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_USER
+        msg['To'] = EMAIL_TO
+        msg['Subject'] = f"База данных бота - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        
+        # Добавляем статистику в текст письма
+        stats = user_db.get_database_stats()
+        body = f"""
+        Статистика базы данных:
+        - Всего пользователей: {stats.get('total_users', 0)}
+        - Всего сообщений: {stats.get('total_messages', 0)}
+        - Активных пользователей: {stats.get('active_users', 0)}
+        - Последняя активность: {stats.get('last_activity', 'Нет данных')}
+        
+        Файл базы данных прикреплен.
         """
-    },
-    'hurt': {
-        'temperature': 0.75,
-        'prompt': BASE_SYSTEM_PROMPT + """
-        Тебя обидели. Ты чувствуешь боль и разочарование. 
-        Отвечай сдержанно, покажи что тебе неприятно.
-        Можешь быть немного холодной и отстраненной.
-        """
-    },
-    'affectionate': {
-        'temperature': 0.8,
-        'prompt': BASE_SYSTEM_PROMPT + """
-        Ты чувствуешь теплые чувства к собеседнику. 
-        Отвечай нежно, с заботой и вниманием.
-        Покажи что ценишь этого человека.
-        """
-    }
-}
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Прикрепляем файл базы данных
+        with open(user_db.db_name, 'rb') as f:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename="{user_db.db_name}"')
+            msg.attach(part)
+        
+        # Отправляем письмо
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASSWORD)
+            server.send_message(msg)
+        
+        logger.info("✅ База данных отправлена на почту")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки базы данных на почту: {e}")
+        return False
 
-# Триггеры для определения стиля общения
-STYLE_TRIGGERS = {
-    'friendly': ['привет', 'добрый', 'хороший', 'милый', 'любимый', 'как дела', 'как жизнь'],
-    'sarcastic': ['😂', '🤣', '😆', 'лол', 'хаха', 'шутк', 'прикол', 'смешно'],
-    'aggressive': ['дурак', 'идиот', 'тупой', 'гад', 'ненавижу', 'злой', 'сердит', 'бесишь'],
-    'flirtatious': ['💋', '❤️', '😘', 'люблю', 'красив', 'секс', 'мил', 'дорог', 'симпатия'],
-    'technical': ['код', 'програм', 'техни', 'алгоритм', 'баз', 'sql', 'python', 'дизайн'],
-    'caring': ['грустн', 'плохо', 'один', 'помоги', 'совет', 'поддерж', 'тяжело'],
-    'angry': MAT_WORDS,
-    'hurt': ['обидел', 'обидно', 'больно', 'предал', 'обманул', 'разочаровал'],
-    'affectionate': ['люблю', 'нравишься', 'скучаю', 'дорогой', 'милый', 'любимый']
-}
+async def periodic_database_backup():
+    """Периодическая отправка базы данных на почту"""
+    while True:
+        await asyncio.sleep(3600)  # Каждый час
+        await send_database_email()
 
-# Вопросы для поддержания беседы
-CONVERSATION_STARTERS = [
-    "А у тебя какие планы на выходные?",
-    "Как прошел твой день?",
-    "Что интересного произошло в последнее время?",
-    "Какая у тебя работа/учеба?",
-    "Есть хобби или увлечения?",
-    "Любишь путешествовать? Куда мечтаешь поехать?",
-    "Какую музыку слушаешь?",
-    "Фильмы или сериалы какие-то смотришь?",
-]
-
-# Естественные вопросы-уточнения
-NATURAL_QUESTIONS = [
-    "Кстати,",
-    "А вот еще что интересно:",
-    "Слушай, а",
-    "Кстати, вот что я подумала:",
-    "А вообще,",
-    "Знаешь, что еще?",
-    "Вот еще вопрос:",
-    "А кстати,"
-]
-
-# Эмодзи для разных стилей
-EMOJIS = {
-    'friendly': ['😊', '🙂', '👍', '👋', '🌟'],
-    'sarcastic': ['😏', '😅', '🤔', '🙄', '😆'],
-    'flirtatious': ['😘', '😉', '💕', '🥰', '😊'],
-    'caring': ['🤗', '❤️', '💝', '☺️', '✨'],
-    'neutral': ['🙂', '👍', '👌', '💭', '📝'],
-    'technical': ['🤓', '💻', '📊', '🔍', '📚'],
-    'hurt': ['😔', '😢', '😞', '💔', '🥺'],
-    'affectionate': ['💖', '🥰', '😍', '💘', '💓']
-}
-
-# Эмоциональные реакции
-EMOTIONAL_REACTIONS = {
-    'surprise': ['Ого!', 'Вау!', 'Ничего себе!', 'Вот это да!', 'Ух ты!'],
-    'confusion': ['Странно...', 'Не поняла...', 'Что-то я запуталась...', 'Как так?'],
-    'excitement': ['Круто!', 'Здорово!', 'Восхитительно!', 'Как интересно!'],
-    'sympathy': ['Мне жаль...', 'Сочувствую...', 'Понимаю тебя...', 'Это тяжело...'],
-    'hurt': ['Мне больно это слышать...', 'Обидно...', 'Не ожидала от тебя...', 'Расстроилась...']
-}
-
-# Специальные ответы на частые вопросы
-SPECIAL_RESPONSES = {
-    'как тебя зовут': [
-        f"Меня зовут {JULIA_BIO['name']}!",
-        f"Я {JULIA_BIO['name']}, приятно познакомиться!",
-        f"{JULIA_BIO['name']}, а тебя как?"
-    ],
-    'сколько тебе лет': [
-        f"Мне {JULIA_BIO['age']} лет!",
-        f"{JULIA_BIO['age']} уже скоро будет... время летит!",
-        f"А тебе сколько? Я {JULIA_BIO['age']}"
-    ],
-    'откуда ты': [
-        f"Я из {JULIA_BIO['city']}, самого лучшего города!",
-        f"Родом из {JULIA_BIO['city']}, а ты откуда?",
-        f"{JULIA_BIO['city']} - мой дом родной!"
-    ],
-    'кто ты': [
-        f"Я {JULIA_BIO['name']}, {JULIA_BIO['profession'].lower()} из {JULIA_BIO['city']}!",
-        f"Просто девушка {JULIA_BIO['name']}, которая любит {random.choice(JULIA_BIO['hobbies'])}",
-        f"{JULIA_BIO['name']} - {JULIA_BIO['profession'].lower()}, мечтательница и немного бунтарка"
-    ],
-    'мат_реакция': [
-        "А ну прекрати материться! Я не намерена это терпеть!",
-        "Что за похабщина? Веди себя прилично!",
-        "Прекрати хамить! Я не буду общаться на таком языке!",
-        "Выражайся нормально, а не как сапожник!",
-        "Я не намерена слушать этот мат! Уважай себя и других!",
-        "Хватит материться! Веди себя как цивилизованный человек!",
-        "Что за нецензурщина? Я прекращаю этот разговор!",
-        "Перестань выражаться! Это отвратительно!",
-        "Я не буду терпеть такой язык! Веди себя прилично!",
-        "Хамство и мат - не лучший способ общения! Прекрати!"
-    ],
-}
-
-# Фразы для разных уровней отношений
-RELATIONSHIP_PHRASES = {
-    RelationshipLevel.STRANGER: [
-        "Привет! Мы только познакомились, давай узнаем друг друга получше.",
-        "Рада познакомиться! Расскажи немного о себе.",
-        "Привет! Я всегда рада новым знакомствам."
-    ],
-    RelationshipLevel.ACQUAINTANCE: [
-        "Привет! Как твои дела?",
-        "Рада тебя видеть! Что новенького?",
-        "Привет! Как прошел день?"
-    ],
-    RelationshipLevel.FRIEND: [
-        "Привет, друг! 😊 Как ты?",
-        "О, привет! Соскучилась по нашему общению!",
-        "Привет! Как твои успехи?"
-    ],
-    RelationshipLevel.CLOSE_FRIEND: [
-        "Привет, дорогой! 💖 Как настроение?",
-        "О, мой любимый человечек! Соскучилась!",
-        "Приветик! Как ты там, все хорошо?"
-    ],
-    RelationshipLevel.BEST_FRIEND: [
-        "Привет, лучший! 🥰 Как мой самый близкий друг?",
-        "О, наконец-то ты! Я уже начала скучать!",
-        "Привет, родной! 💕 Как твои дела?"
-    ]
-}
-
-# Fallback ответы при ошибках
-FALLBACK_RESPONSES = [
-    "Извини, я немного запуталась... Можешь повторить?",
-    "Что-то я не совсем поняла...",
-    "Давай поговорим о чем-то другом?",
-    "Интересно... а что еще тебя волнует?",
-    "Слушай, у меня тут небольшие технические неполадки...",
-    "Кажется, я потеряла нить разговора...",
-    "Давай начнем заново? Что хотел сказать?"
-]
-
-# Паттерны для анализа эмоций
-EMOTION_PATTERNS = {
-    'joy': ['рад', 'счастлив', 'весел', 'ура', 'класс', 'супер', 'отлично', 'прекрасно'],
-    'sadness': ['грустн', 'печал', 'тоск', 'плач', 'слез', 'обид', 'жал'],
-    'anger': ['зл', 'сердит', 'бесит', 'раздража', 'ненавиж', 'ярост'],
-    'fear': ['боюсь', 'страш', 'пуга', 'ужас', 'опасн', 'тревож'],
-    'surprise': ['удив', 'неожид', 'вот это', 'ого', 'вау', 'ничего себе'],
-    'love': ['любл', 'нравишь', 'обожа', 'дорог', 'мил', 'симпат']
-}
-
-def get_fallback_response():
-    """Возвращает случайный fallback ответ"""
-    return random.choice(FALLBACK_RESPONSES)
-
-async def cleanup_old_contexts():
+async def periodic_context_cleanup():
     """Периодическая очистка старых контекстов"""
     while True:
         await asyncio.sleep(3600)  # Каждый час
@@ -593,533 +428,7 @@ async def cleanup_old_contexts():
                 removed_count += 1
         
         if removed_count > 0:
-            logger.info(f"Очищено {removed_count} старых контекстов")
-
-# Глобальная переменная для базы данных
-user_db = None
-
-def enhance_special_responses(user_id, message):
-    """Улучшенные ответы с учетом контекста"""
-    context = get_user_context(user_id)
-    lower_msg = message.lower()
-    
-    if 'как тебя зовут' in lower_msg:
-        if context['relationship_level'].value >= RelationshipLevel.FRIEND.value:
-            return random.choice([
-                f"Ты что, забыл уже? Я {JULIA_BIO['name']}! 😊",
-                f"Как будто не знаешь... {JULIA_BIO['name']}",
-                f"Можно просто Юля 😊 А тебя как зовут-то?"
-            ])
-        else:
-            return random.choice(SPECIAL_RESPONSES['как тебя зовут'])
-    
-    if 'сколько тебе лет' in lower_msg:
-        if context['relationship_level'].value >= RelationshipLevel.CLOSE_FRIEND.value:
-            return random.choice([
-                f"А тебе какая разница? 😏 Но если хочешь знать - {JULIA_BIO['age']}",
-                f"Всего {JULIA_BIO['age']}, а чувствую себя на все 100!",
-                f"{JULIA_BIO['age']}... и не напоминай об этом! 😅"
-            ])
-        else:
-            return random.choice(SPECIAL_RESPONSES['сколько тебе лет'])
-    
-    if 'откуда ты' in lower_msg:
-        if context['relationship_level'].value >= RelationshipLevel.FRIEND.value:
-            return random.choice([
-                f"Из {JULIA_BIO['city']}, конечно! Разве не видно? 😄",
-                f"{JULIA_BIO['city']} - мой родной город! А ты откуда?",
-                f"Родом из {JULIA_BIO['city']}, но душа везде 🎒"
-            ])
-        else:
-            return random.choice(SPECIAL_RESPONSES['откуда ты'])
-    
-    if 'кто ты' in lower_msg:
-        return random.choice(SPECIAL_RESPONSES['кто ты'])
-    
-    return None
-
-def get_user_context(user_id):
-    """Получает контекст пользователя из базы данных"""
-    global user_db
-    
-    # Если пользователь уже в кэше
-    if user_id in conversation_context:
-        return conversation_context[user_id]
-    
-    # Пробуем загрузить из базы
-    saved_context = user_db.load_user_context(user_id)
-    
-    if saved_context:
-        # Загружаем историю сообщений
-        history = user_db.get_user_messages(user_id, 10)
-        
-        # Создаем полный контекст
-        conversation_context[user_id] = {
-            **get_default_context(),
-            **saved_context,
-            'history': history,
-            'last_interaction': datetime.now()
-        }
-        logger.info(f"📂 Загружен контекст пользователя {user_id} из базы")
-        return conversation_context[user_id]
-    else:
-        # Создаем новый контекст
-        conversation_context[user_id] = get_default_context()
-        logger.info(f"🆕 Создан новый контекст для пользователя {user_id}")
-        return conversation_context[user_id]
-
-def get_default_context():
-    """Возвращает контекст по умолчанию"""
-    return {
-        'history': [],
-        'last_style': 'neutral',
-        'user_info': {},
-        'last_interaction': datetime.now(),
-        'topics': [],
-        'mood': 'neutral',
-        'name_used_count': 0,
-        'last_name_usage': None,
-        'first_interaction': True,
-        'user_name': None,
-        'typing_speed': random.uniform(0.03, 0.06),
-        'conversation_depth': 0,
-        'mat_count': 0,
-        'relationship_level': RelationshipLevel.STRANGER,
-        'relationship_score': 0,
-        'trust_level': 0,
-        'offense_count': 0,
-        'last_offense': None,
-        'affection_level': 0,
-        'messages_count': 0,
-        'positive_interactions': 0,
-        'negative_interactions': 0,
-        'discussed_topics': {},
-        'user_preferences': {},
-        'inside_jokes': [],
-        'unfinished_topics': [],
-        'avg_message_length': 0,
-        'emoji_frequency': 0,
-        'emotions': {emotion: 0 for emotion in EMOTION_PATTERNS.keys()}
-    }
-
-def update_relationship_level(user_id, message_style, message_content):
-    """Обновляет уровень отношений"""
-    context = get_user_context(user_id)
-    lower_msg = message_content.lower()
-    
-    base_points = 1
-    
-    style_modifiers = {
-        'friendly': 2,
-        'caring': 3,
-        'affectionate': 4,
-        'flirtatious': 3,
-        'neutral': 1,
-        'sarcastic': 0,
-        'technical': 0,
-        'aggressive': -5,
-        'angry': -8,
-        'hurt': -3
-    }
-    
-    positive_words = ['спасибо', 'благодар', 'нравишься', 'люблю', 'скучаю', 'дорогой', 'милый']
-    negative_words = MAT_WORDS + ['дурак', 'идиот', 'тупой', 'ненавижу', 'отвратит']
-    
-    points = base_points + style_modifiers.get(message_style, 0)
-    
-    for word in positive_words:
-        if word in lower_msg:
-            points += 2
-    
-    for word in negative_words:
-        if word in lower_msg:
-            points -= 5
-    
-    context['relationship_score'] += points
-    context['messages_count'] += 1
-    
-    if points > 0:
-        context['positive_interactions'] += 1
-    elif points < 0:
-        context['negative_interactions'] += 1
-    
-    old_level = context['relationship_level']
-    
-    if context['relationship_score'] >= 100:
-        context['relationship_level'] = RelationshipLevel.BEST_FRIEND
-    elif context['relationship_score'] >= 60:
-        context['relationship_level'] = RelationshipLevel.CLOSE_FRIEND
-    elif context['relationship_score'] >= 30:
-        context['relationship_level'] = RelationshipLevel.FRIEND
-    elif context['relationship_score'] >= 10:
-        context['relationship_level'] = RelationshipLevel.ACQUAINTANCE
-    else:
-        context['relationship_level'] = RelationshipLevel.STRANGER
-    
-    if old_level != context['relationship_level']:
-        logger.info(f"📈 Уровень отношений пользователя {user_id} изменился: {old_level} -> {context['relationship_level']}")
-    
-    return context
-
-def detect_emotions(text):
-    """Определяет эмоции в тексте"""
-    emotions = {emotion: 0 for emotion in EMOTION_PATTERNS.keys()}
-    lower_text = text.lower()
-    
-    for emotion, patterns in EMOTION_PATTERNS.items():
-        for pattern in patterns:
-            if pattern in lower_text:
-                emotions[emotion] += 1
-    
-    return emotions
-
-def analyze_message_style(message):
-    """Анализирует стиль сообщения"""
-    lower_msg = message.lower()
-    
-    # Проверка на мат
-    mat_count = sum(1 for word in MAT_WORDS if word in lower_msg)
-    
-    if mat_count > 0:
-        return 'angry', {'mat_count': mat_count}
-    
-    # Проверка триггеров стилей
-    for style, triggers in STYLE_TRIGGERS.items():
-        for trigger in triggers:
-            if trigger in lower_msg:
-                return style, {}
-    
-    # Анализ эмоций
-    emotions = detect_emotions(message)
-    dominant_emotion = max(emotions.items(), key=lambda x: x[1])[0]
-    
-    emotion_to_style = {
-        'joy': 'friendly',
-        'sadness': 'caring',
-        'anger': 'aggressive',
-        'fear': 'caring',
-        'surprise': 'friendly',
-        'love': 'flirtatious'
-    }
-    
-    if emotions[dominant_emotion] > 0:
-        return emotion_to_style.get(dominant_emotion, 'neutral'), {'emotions': emotions}
-    
-    return 'neutral', {}
-
-def should_use_name(context):
-    """Определяет, стоит ли использовать имя пользователя"""
-    if not context['user_name']:
-        return False
-    
-    if context['name_used_count'] >= 3 and context['last_name_usage']:
-        time_diff = (datetime.now() - context['last_name_usage']).total_seconds()
-        if time_diff < 300:  # 5 минут
-            return False
-    
-    if random.random() < 0.3:  # 30% шанс использовать имя
-        context['name_used_count'] += 1
-        context['last_name_usage'] = datetime.now()
-        return True
-    
-    return False
-
-def add_emoji(style, text):
-    """Добавляет эмодзи в зависимости от стиля"""
-    if random.random() < 0.6:  # 60% шанс добавить эмодзи
-        emoji = random.choice(EMOJIS.get(style, EMOJIS['neutral']))
-        if random.random() < 0.5:
-            text = f"{text} {emoji}"
-        else:
-            text = f"{emoji} {text}"
-    return text
-
-def add_typing_effects(text, context):
-    """Добавляет эффекты печатания"""
-    if len(text) > 100 and random.random() < 0.3:
-        if random.random() < 0.5:
-            text = text.replace('.', '...', 1)
-        if random.random() < 0.3:
-            text = text.replace('!', '!!', 1)
-    
-    return text
-
-def replace_slang(text):
-    """Заменяет жаргон на нормальные слова"""
-    words = text.split()
-    replaced = False
-    
-    for i, word in enumerate(words):
-        lower_word = word.lower()
-        for slang, replacements in SLANG_DICTIONARY.items():
-            if slang in lower_word:
-                words[i] = random.choice(replacements)
-                replaced = True
-                break
-    
-    if replaced:
-        return ' '.join(words)
-    return text
-
-def should_ask_question(context):
-    """Определяет, стоит ли задавать вопрос"""
-    last_messages = context['history'][-3:] if len(context['history']) >= 3 else context['history']
-    
-    question_count = sum(1 for msg in last_messages if '?' in msg.get('bot', ''))
-    
-    if question_count >= 2:
-        return False
-    
-    if len(context['history']) > 5 and random.random() < 0.4:
-        return True
-    
-    if context['conversation_depth'] > 2 and random.random() < 0.6:
-        return True
-    
-    return False
-
-def generate_natural_question(context):
-    """Генерирует естественный вопрос"""
-    if not context['topics']:
-        return random.choice(CONVERSATION_STARTERS)
-    
-    current_topic = random.choice(context['topics'])
-    question_starter = random.choice(NATURAL_QUESTIONS)
-    
-    questions = {
-        'работа': f"{question_starter} как дела на работе?",
-        'учёба': f"{question_starter} как успехи в учебе?",
-        'хобби': f"{question_starter} много времени уделяешь своему хобби?",
-        'путешествия': f"{question_starter} куда мечтаешь поехать?",
-        'музыка': f"{question_starter} что сейчас слушаешь?",
-        'фильмы': f"{question_starter} видел что-нибудь интересное в кино?",
-        'спорт': f"{question_starter} занимаешься спортом?",
-        'еда': f"{question_starter} что любишь готовить?"
-    }
-    
-    return questions.get(current_topic, random.choice(CONVERSATION_STARTERS))
-
-def add_emotional_reaction(text, emotions):
-    """Добавляет эмоциональную реакцию"""
-    if not emotions:
-        return text
-    
-    dominant_emotion = max(emotions.items(), key=lambda x: x[1])[0]
-    
-    if emotions[dominant_emotion] > 1 and random.random() < 0.4:
-        reaction = random.choice(EMOTIONAL_REACTIONS.get(dominant_emotion, []))
-        if random.random() < 0.5:
-            text = f"{reaction} {text}"
-        else:
-            text = f"{text} {reaction.lower()}"
-    
-    return text
-
-def create_prompt(user_message, context):
-    """Создает промпт для Yandex GPT"""
-    style, style_data = analyze_message_style(user_message)
-    emotions = style_data.get('emotions', {})
-    
-    # Обновляем контекст
-    context = update_relationship_level(context['user_id'], style, user_message)
-    context['last_style'] = style
-    context['last_interaction'] = datetime.now()
-    
-    if 'mat_count' in style_data:
-        context['mat_count'] += style_data['mat_count']
-        context['negative_interactions'] += 1
-    
-    # Собираем историю
-    history_text = ""
-    for msg in context['history'][-5:]:
-        history_text += f"Пользователь: {msg['user']}\n"
-        history_text += f"Юля: {msg['bot']}\n"
-    
-    # Базовая информация о Юле
-    prompt = COMMUNICATION_STYLES[style]['prompt']
-    
-    # Информация о пользователе
-    if context['user_info']:
-        user_info = "Информация о пользователе:\n"
-        for key, value in context['user_info'].items():
-            user_info += f"- {key}: {value}\n"
-        prompt += f"\n{user_info}"
-    
-    # Уровень отношений
-    relationship_info = f"Уровень отношений: {context['relationship_level'].name} (очки: {context['relationship_score']})"
-    prompt += f"\n{relationship_info}"
-    
-    # История разговора
-    if history_text:
-        prompt += f"\n\nИстория разговора:\n{history_text}"
-    
-    # Текущее сообщение
-    prompt += f"\n\nТекущее сообщение пользователя: {user_message}"
-    prompt += f"\n\nЮля:"
-    
-    return prompt, style, emotions
-
-async def send_to_yandex_gpt(prompt, style):
-    """Отправляет запрос к Yandex GPT"""
-    headers = {
-        "Authorization": f"Api-Key {YANDEX_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
-        "completionOptions": {
-            "stream": False,
-            "temperature": COMMUNICATION_STYLES[style]['temperature'],
-            "maxTokens": 2000
-        },
-        "messages": [
-            {
-                "role": "system",
-                "text": "Ты ассистент, который помогает пользователям."
-            },
-            {
-                "role": "user",
-                "text": prompt
-            }
-        ]
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(YANDEX_API_URL, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data['result']['alternatives'][0]['message']['text']
-                else:
-                    logger.error(f"Ошибка Yandex GPT: {response.status}")
-                    return None
-                    
-    except Exception as e:
-        logger.error(f"Исключение при запросе к Yandex GPT: {e}")
-        return None
-
-async def process_message(user_message, user_id, username, first_name, last_name):
-    """Обрабатывает сообщение пользователя"""
-    try:
-        # Проверяем специальные ответы
-        special_response = enhance_special_responses(user_id, user_message)
-        if special_response:
-            return special_response
-        
-        # Получаем контекст
-        context = get_user_context(user_id)
-        
-        # Создаем промпт
-        prompt, style, emotions = create_prompt(user_message, context)
-        
-        # Отправляем в Yandex GPT
-        response = await send_to_yandex_gpt(prompt, style)
-        
-        if not response:
-            response = get_fallback_response()
-        
-        # Обрабатываем ответ
-        response = replace_slang(response)
-        
-        if should_use_name(context) and context['user_name']:
-            response = response.replace('ты', context['user_name'], 1)
-        
-        response = add_emotional_reaction(response, emotions)
-        response = add_typing_effects(response, context)
-        response = add_emoji(style, response)
-        
-        if should_ask_question(context):
-            question = generate_natural_question(context)
-            response = f"{response} {question}"
-        
-        # Сохраняем в историю
-        context['history'].append({
-            'user': user_message,
-            'bot': response,
-            'timestamp': datetime.now(),
-            'style': style
-        })
-        
-        # Сохраняем в базу
-        user_db.save_user_message(
-            user_id, username, first_name, last_name,
-            user_message, response, style, emotions
-        )
-        
-        # Сохраняем контекст
-        user_db.save_user_context(user_id, context)
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Ошибка обработки сообщения: {e}")
-        return get_fallback_response()
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик входящих сообщений"""
-    try:
-        user_id = update.effective_user.id
-        username = update.effective_user.username
-        first_name = update.effective_user.first_name
-        last_name = update.effective_user.last_name
-        user_message = update.message.text
-        
-        if not user_message or user_message.strip() == '':
-            await update.message.reply_text("Я тебя не совсем поняла...")
-            return
-        
-        # Имитируем печатание
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        
-        # Обрабатываем сообщение
-        response = await process_message(user_message, user_id, username, first_name, last_name)
-        
-        # Отправляем ответ
-        await update.message.reply_text(response)
-        
-    except Exception as e:
-        logger.error(f"Ошибка в handle_message: {e}")
-        await update.message.reply_text(get_fallback_response())
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
-    user_id = update.effective_user.id
-    username = update.effective_user.username
-    first_name = update.effective_user.first_name
-    last_name = update.effective_user.last_name
-    
-    # Получаем контекст
-    user_context = get_user_context(user_id)
-    
-    # Сохраняем информацию о пользователе
-    user_context['user_name'] = first_name or username
-    user_context['first_interaction'] = False
-    
-    # Выбираем приветствие в зависимости от уровня отношений
-    greeting = random.choice(RELATIONSHIP_PHRASES[user_context['relationship_level']])
-    
-    # Добавляем информацию о себе
-    about_me = f"Я {JULIA_BIO['name']}, {JULIA_BIO['profession'].lower()} из {JULIA_BIO['city']}. "
-    about_me += f"Люблю {random.choice(JULIA_BIO['hobbies'])} и {random.choice(JULIA_BIO['hobbies'])}. "
-    about_me += "Рада познакомиться! 😊"
-    
-    full_greeting = f"{greeting} {about_me}"
-    
-    await update.message.reply_text(full_greeting)
-    
-    # Сохраняем в базу
-    user_db.save_user_message(
-        user_id, username, first_name, last_name,
-        "/start", full_greeting, "friendly", {}
-    )
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик ошибок"""
-    logger.error(f"Ошибка: {context.error}")
-    
-    if update and update.message:
-        await update.message.reply_text("Что-то пошло не так... Давай попробуем еще раз?")
+            logger.info(f"🧹 Очищено {removed_count} старых контекстов")
 
 def main():
     """Основная функция"""
@@ -1142,13 +451,65 @@ def main():
     
     # Добавление обработчиков
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("backup", backup_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     application.add_error_handler(error_handler)
+    
+    # Запуск фоновых задач
+    application.job_queue.run_repeating(periodic_context_cleanup, interval=3600, first=10)
+    application.job_queue.run_repeating(periodic_database_backup, interval=3600, first=10)
     
     logger.info("🤖 Бот запускается...")
     
     # Запуск бота
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для ручного бэкапа базы данных"""
+    success = await send_database_email()
+    if success:
+        await update.message.reply_text("✅ База данных отправлена на почту!")
+    else:
+        await update.message.reply_text("❌ Ошибка отправки базы данных")
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для получения статистики"""
+    user_id = update.effective_user.id
+    user_stats = user_db.get_user_stats(user_id)
+    db_stats = user_db.get_database_stats()
+    
+    response = f"📊 Ваша статистика:\n"
+    response += f"• Сообщений: {user_stats.get('total_messages', 0)}\n"
+    response += f"• Последняя активность: {user_stats.get('last_activity', 'Нет данных')}\n\n"
+    
+    response += f"📈 Общая статистика бота:\n"
+    response += f"• Пользователей: {db_stats.get('total_users', 0)}\n"
+    response += f"• Сообщений: {db_stats.get('total_messages', 0)}\n"
+    response += f"• Активных: {db_stats.get('active_users', 0)}\n"
+    
+    await update.message.reply_text(response)
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка фотографий"""
+    responses = [
+        "Классное фото! 😊",
+        "Интересное изображение!",
+        "Спасибо за фото!",
+        "Красиво! 📸"
+    ]
+    await update.message.reply_text(random.choice(responses))
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка голосовых сообщений"""
+    responses = [
+        "Извини, я пока не умею слушать голосовые сообщения 😅",
+        "Пока я лучше понимаю текстовые сообщения!",
+        "Можешь написать текстом? Я так лучше пойму 😊"
+    ]
+    await update.message.reply_text(random.choice(responses))
 
 if __name__ == "__main__":
     main()
