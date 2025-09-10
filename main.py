@@ -1070,6 +1070,16 @@ def get_user_context(user_id: int) -> Dict[str, Any]:
         logger.error(f"Ошибка получения контекста пользователя {user_id}: {e}")
         return {'user_id': user_id, 'history': [], 'messages_count': 0, 'user_facts': {}}
 
+def ensure_database_persistence():
+    """Обеспечивает сохранение базы данных при перезапусках"""
+    if not os.path.exists('/tmp/bot_users.db'):
+        if os.path.exists('bot_users.db'):
+            shutil.copy2('bot_users.db', '/tmp/bot_users.db')
+    else:
+        if os.path.exists('bot_users.db'):
+            os.remove('bot_users.db')
+        shutil.copy2('/tmp/bot_users.db', 'bot_users.db')
+
 def save_complete_context(user_id: int, user_message: str, bot_response: str, 
                          deep_context: Dict[str, Any], emotional_state: Dict[str, Any],
                          response_metrics: Dict[str, Any], memory_reference: Optional[str] = None):
@@ -1545,8 +1555,14 @@ def main():
     except Exception as e:
         logger.error(f"Неожиданная ошибка: {e}")
 
+def backup_database():
+    """Резервное копирование базы данных"""
+    if os.path.exists('bot_users.db'):
+        shutil.copy2('bot_users.db', '/tmp/bot_users.db')
+
 if __name__ == "__main__":
     main()
+
 
 
 
