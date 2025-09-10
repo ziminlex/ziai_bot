@@ -418,7 +418,7 @@ class HumanConversationSimulator:
         # Этот блок должен быть ВНЕ внутреннего try-except
         experience = max(0.7, 1.0 - (messages_count * 0.0005))
         
-        return float(base_time) * float(variation) * float(experience)
+    return float(base_time) * float(variation) * float(experience)
         
     except (TypeError, ValueError) as e:
         logger.error(f"Ошибка вычисления времени печатания: {e}")
@@ -1349,6 +1349,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
