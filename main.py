@@ -205,7 +205,7 @@ class DeepContextAnalyzer:
                 else:
                     historical_topics[topic] = weight * (0.9 ** i)
     
-    return dict(sorted(historical_topics.items(), key=lambda x: x[1], reverse=True)[:8])
+        return dict(sorted(historical_topics.items(), key=lambda x: x[1], reverse=True)[:8])
 
 def _analyze_emotional_arc(self, history):
     """Анализ эмоциональной дуги беседы"""
@@ -1537,6 +1537,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
