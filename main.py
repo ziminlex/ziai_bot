@@ -181,7 +181,7 @@ class DeepContextAnalyzer:
     def _extract_topics(self, text):
         """Извлечение тем с весами"""
         words = re.findall(r'\b[а-яё]{3,}\b', text.lower())
-        stop_words = {'этот', 'очень', 'который', 'когда', 'потом', 'тогда', 'вообще', 'значит'}
+        stop_words = {'этот', 'очень', 'которьій', 'когда', 'потом', 'тогда', 'вообще', 'значит'}
         topics = {}
         
         for word in set(words) - stop_words:
@@ -199,30 +199,30 @@ class DeepContextAnalyzer:
         for i, msg in enumerate(history[-20:]):
             if 'user' in msg:
                 topics = self._extract_topics(msg['user'])
-            for topic, weight in topics.items():
-                if topic in historical_topics:
-                    historical_topics[topic] += weight * (0.9 ** i)
-                else:
-                    historical_topics[topic] = weight * (0.9 ** i)
-    
+                for topic, weight in topics.items():
+                    if topic in historical_topics:
+                        historical_topics[topic] += weight * (0.9 ** i)
+                    else:
+                        historical_topics[topic] = weight * (0.9 ** i)
+        
         return dict(sorted(historical_topics.items(), key=lambda x: x[1], reverse=True)[:8])
-
-def _analyze_emotional_arc(self, history):
-    """Анализ эмоциональной дуги беседы"""
-    emotions = []
-    for msg in history[-10:]:
-        if 'user' in msg:
-            emotional_score = self._calculate_emotional_score(msg['user'])
-            emotions.append(emotional_score)
     
-    if len(emotions) > 2:
-        trend = np.polyfit(range(len(emotions)), emotions, 1)[0]
-        return {
-            'current_mood': emotions[-1] if emotions else 0.5,
-            'trend': trend,
-            'volatility': np.std(emotions) if len(emotions) > 1 else 0
-        }
-    return {'current_mood': 0.5, 'trend': 0, 'volatility': 0}
+    def _analyze_emotional_arc(self, history):
+        """Анализ эмоциональной дуги беседы"""
+        emotions = []
+        for msg in history[-10:]:
+            if 'user' in msg:
+                emotional_score = self._calculate_emotional_score(msg['user'])
+                emotions.append(emotional_score)
+        
+        if len(emotions) > 2:
+            trend = np.polyfit(range(len(emotions)), emotions, 1)[0]
+            return {
+                'current_mood': emotions[-1] if emotions else 0.5,
+                'trend': trend,
+                'volatility': np.std(emotions) if len(emotions) > 1 else 0
+            }
+        return {'current_mood': 0.5, 'trend': 0, 'volatility': 0}
     
     def _calculate_emotional_score(self, text):
         """Вычисление эмоционального скора"""
@@ -284,6 +284,16 @@ def _analyze_emotional_arc(self, history):
         
         if len(history) < 5:
             return patterns
+        
+        questions = sum(1 for msg in history[-10:] if 'user' in msg and '?' in msg['user'])
+        patterns['question_frequency'] = questions / min(10, len(history))
+        
+        message_lengths = [len(msg.get('user', '')) for msg in history[-10:] if 'user' in msg]
+        if message_lengths:
+            avg_length = np.mean(message_lengths)
+            patterns['response_style'] = 'detailed' if avg_length > 50 else 'concise'
+        
+        return patterns
         
         questions = sum(1 for msg in history[-10:] if 'user' in msg and '?' in msg['user'])
         patterns['question_frequency'] = questions / min(10, len(history))
@@ -1537,6 +1547,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
