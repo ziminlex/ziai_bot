@@ -194,23 +194,24 @@ class DeepContextAnalyzer:
         return dict(sorted(topics.items(), key=lambda x: x[1], reverse=True)[:5])
     
     def _analyze_historical_topics(self, history):
-        """Анализ исторических тем"""
-        historical_topics = {}
-        for i, msg in enumerate(history[-20:]):
-            if 'user' in msg:
-                topics = self._extract_topics(msg['user'])
-                for topic, weight in topics.items():
-                    if topic in historical_topics:
-                        historical_topics[topic] += weight * (0.9 ** i)
-                    else:
-                        historical_topics[topic] = weight * (0.9 ** i)
-        
-        return dict(sorted(historical_topics.items(), key=lambda x: x[1], reverse=True)[:8])
-    def _analyze_emotional_arc(self, history):
-        """Анализ эмоциональной дуги беседы"""
-        emotions = []
-            for msg in history[-10:]:
-                if 'user' in msg:
+    """Анализ исторических тем"""
+    historical_topics = {}
+    for i, msg in enumerate(history[-20:]):
+        if 'user' in msg:
+            topics = self._extract_topics(msg['user'])
+            for topic, weight in topics.items():
+                if topic in historical_topics:
+                    historical_topics[topic] += weight * (0.9 ** i)
+                else:
+                    historical_topics[topic] = weight * (0.9 ** i)
+    
+    return dict(sorted(historical_topics.items(), key=lambda x: x[1], reverse=True)[:8])
+
+def _analyze_emotional_arc(self, history):
+    """Анализ эмоциональной дуги беседы"""
+    emotions = []
+    for msg in history[-10:]:
+        if 'user' in msg:
             emotional_score = self._calculate_emotional_score(msg['user'])
             emotions.append(emotional_score)
     
@@ -219,9 +220,9 @@ class DeepContextAnalyzer:
         return {
             'current_mood': emotions[-1] if emotions else 0.5,
             'trend': trend,
-            'volatility': np.std(emotions) if len(emotions) > 1 else 0  # ИСПРАВЛЕННАЯ СТРОКА
+            'volatility': np.std(emotions) if len(emotions) > 1 else 0
         }
-        return {'current_mood': 0.5, 'trend': 0, 'volatility': 0}
+    return {'current_mood': 0.5, 'trend': 0, 'volatility': 0}
     
     def _calculate_emotional_score(self, text):
         """Вычисление эмоционального скора"""
@@ -1536,6 +1537,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
