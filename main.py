@@ -1239,7 +1239,7 @@ async def generate_ai_response(prompt, style):
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
         "completionOptions": {
             "stream": False,
-            "temperature': temperature,
+            "temperature": temperature,
             "maxTokens": 2000
         },
         "messages": [
@@ -1340,3 +1340,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
