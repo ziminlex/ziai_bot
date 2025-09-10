@@ -208,9 +208,9 @@ class DeepContextAnalyzer:
         return dict(sorted(historical_topics.items(), key=lambda x: x[1], reverse=True)[:8])
     def _analyze_emotional_arc(self, history):
         """Анализ эмоциональной дуги беседы"""
-    emotions = []
-    for msg in history[-10:]:
-        if 'user' in msg:
+        emotions = []
+            for msg in history[-10:]:
+                if 'user' in msg:
             emotional_score = self._calculate_emotional_score(msg['user'])
             emotions.append(emotional_score)
     
@@ -1536,6 +1536,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
