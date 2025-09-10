@@ -55,6 +55,9 @@ YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 # URL API Yandex GPT
 YANDEX_API_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 
+# Контекст беседы для каждого пользователя
+conversation_context = {}
+
 class PersonalityGenerator:
     """Генератор персонажа и личности бота"""
     
@@ -118,7 +121,7 @@ class PersonalityGenerator:
         
         # Выбор имени в соответствии с полом
         if gender == 'male':
-            name = random.choice([n for n in persona['name'] if n.endswith(('а', 'я')) is False])
+            name = random.choice([n for n in persona['name'] if not n.endswith(('а', 'я'))])
         else:
             name = random.choice([n for n in persona['name'] if n.endswith(('а', 'я'))])
         
@@ -638,6 +641,138 @@ conversation_simulator = HumanConversationSimulator()
 memory_system = MemorySystem()
 emotional_intelligence = EmotionalIntelligence()
 
+def extract_personal_info(message: str) -> Dict[str, str]:
+    """Улучшенное извлечение персональной информации"""
+    info = {}
+    
+    # Поиск имени с улучшенными паттернами
+    name_patterns = [
+        r'меня зовут (\w+)', r'я (\w+)', r'зовут (\w+)', 
+        r'мое имя (\w+)', r'имя (\w+)', r'звать (\w+)'
+    ]
+    
+    for pattern in name_patterns:
+        match = re.search(pattern, message.lower())
+        if match:
+            name = match.group(1).capitalize()
+            # Проверка на валидность имени
+            if len(name) > 1 and name.isalpha():
+                info['name'] = name
+                break
+    
+    # Поиск возраста
+    age_patterns = [
+        r'мне (\d+) лет', r'мне (\d+) год', r'возраст (\d+)', 
+        r'(\d+) лет', r'(\d+) год'
+    ]
+    
+    for pattern in age_patterns:
+        match = re.search(pattern, message.lower())
+        if match:
+            age = match.group(1)
+            if age.isdigit() and 1 <= int(age) <= 120:
+                info['age'] = age
+                break
+    
+    # Поиск увлечений
+    interest_patterns = [
+        r'люблю ([^.!?]+)', r'нравится ([^.!?]+)', r'увлекаюсь ([^.!?]+)',
+        r'занимаюсь ([^.!?]+)', r'хобби ([^.!?]+)', r'интересуюсь ([^.!?]+)'
+    ]
+    
+    for pattern in interest_patterns:
+        match = re.search(pattern, message.lower())
+        if match:
+            interests = match.group(1).strip()
+            if len(interests) > 3:
+                info['interests'] = interests
+                break
+    
+    return info
+
+def save_user_fact(user_id: int, fact_type: str, fact_value: str, confidence: float = 1.0):
+    """Сохранение факта с уверенностью"""
+    try:
+        conn = sqlite3.connect("bot_users.db")
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO user_facts 
+            (user_id, fact_type, fact_value, confidence, last_updated)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (user_id, fact_type, fact_value, confidence))
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        logger.error(f"Ошибка сохранения факта пользователя {user_id}: {e}")
+
+def get_user_fact(user_id: int, fact_type: str) -> Optional[str]:
+    """Получение факта о пользователе"""
+    try:
+        conn = sqlite3.connect("bot_users.db")
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT fact_value, confidence FROM user_facts 
+            WHERE user_id = ? AND fact_type = ? 
+            ORDER BY confidence DESC, last_updated DESC 
+            LIMIT 1
+        """, (user_id, fact_type))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result and result[1] > 0.5:  # Минимальная уверенность
+            return result[0]
+        return None
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения факта пользователя {user_id}: {e}")
+        return None
+
+def handle_personal_questions(message: str, user_context: Dict[str, Any]) -> Optional[str]:
+    """Обработка личных вопросов"""
+    text = message.lower()
+    user_id = user_context['user_id']
+    
+    # Вопросы о имени бота
+    name_questions = ['как тебя зовут', 'твое имя', 'как зовут']
+    if any(q in text for q in name_questions):
+        bot_personality = user_context.get('bot_personality', {})
+        return f"Меня зовут {bot_personality.get('name', 'друг')} 😊"
+    
+    # Вопросы о возрасте бота
+    age_questions = ['сколько тебе лет', 'твой возраст', 'какой возраст']
+    if any(q in text for q in age_questions):
+        return "Я всегда молод душой! Возраст - это всего лишь цифра, главное - интересное общение 🤗"
+    
+    # Вопросы о поле бота
+    gender_questions = ['ты парень', 'ты девушка', 'ты мужчина', 'ты женщина', 'ты мужик']
+    if any(q in text for q in gender_questions):
+        return "Я здесь, чтобы быть хорошим собеседником, независимо от пола 😊"
+    
+    # Вопросы о имени пользователя
+    user_name_questions = ['как меня зовут', 'мое имя', 'меня звать']
+    if any(q in text for q in user_name_questions):
+        user_name = get_user_fact(user_id, 'name')
+        if user_name:
+            return f"Тебя зовут {user_name}! Как можно забыть такое красивое имя? 😄"
+        else:
+            return "Ты еще не сказал мне своего имени. Как тебя зовут? 🤔"
+    
+    # Вопросы о возрасте пользователя
+    user_age_questions = ['сколько мне лет', 'мой возраст']
+    if any(q in text for q in user_age_questions):
+        user_age = get_user_fact(user_id, 'age')
+        if user_age:
+            return f"Тебе {user_age} лет! Отличный возраст для новых свершений! 🌟"
+        else:
+            return "Ты еще не говорил мне о своем возрасте. Сколько тебе лет? 😊"
+    
+    return None
+
 def get_user_context(user_id: int) -> Dict[str, Any]:
     """Получение контекста пользователя из базы данных"""
     try:
@@ -654,7 +789,7 @@ def get_user_context(user_id: int) -> Dict[str, Any]:
             """, (user_id,))
             conn.commit()
             conn.close()
-            return {'user_id': user_id, 'history': [], 'messages_count': 0}
+            return {'user_id': user_id, 'history': [], 'messages_count': 0, 'user_facts': {}}
         
         cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         user_data = cursor.fetchone()
@@ -674,7 +809,7 @@ def get_user_context(user_id: int) -> Dict[str, Any]:
         cursor.execute("SELECT * FROM bot_personality WHERE user_id = ?", (user_id,))
         personality_data = cursor.fetchone()
         
-        cursor.execute("SELECT * FROM user_facts WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT fact_type, fact_value FROM user_facts WHERE user_id = ?", (user_id,))
         user_facts_data = cursor.fetchall()
         
         conn.close()
@@ -719,8 +854,8 @@ def get_user_context(user_id: int) -> Dict[str, Any]:
             except json.JSONDecodeError:
                 context['bot_personality'] = None
         
-        for fact in user_facts_data:
-            context['user_facts'][fact[2]] = fact[3]
+        for fact_type, fact_value in user_facts_data:
+            context['user_facts'][fact_type] = fact_value
         
         return context
         
@@ -797,23 +932,6 @@ def save_complete_context(user_id: int, user_message: str, bot_response: str,
         
     except Exception as e:
         logger.error(f"Ошибка сохранения контекста для пользователя {user_id}: {e}")
-
-def save_user_fact(user_id: int, fact_type: str, fact_value: str):
-    """Сохранение факта о пользователе"""
-    try:
-        conn = sqlite3.connect("bot_users.db")
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT OR REPLACE INTO user_facts (user_id, fact_type, fact_value, last_updated)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        """, (user_id, fact_type, fact_value))
-        
-        conn.commit()
-        conn.close()
-        
-    except Exception as e:
-        logger.error(f"Ошибка сохранения факта пользователя {user_id}: {e}")
 
 def save_bot_personality(user_id: int, personality: Dict[str, Any]):
     """Сохранение личности бота для пользователя"""
@@ -937,6 +1055,7 @@ class UserDatabase:
                 user_id INTEGER,
                 fact_type TEXT,
                 fact_value TEXT,
+                confidence REAL DEFAULT 1.0,
                 last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (user_id),
                 UNIQUE(user_id, fact_type)
@@ -960,27 +1079,6 @@ class UserDatabase:
             logger.error(f"Ошибка получения пользователя {user_id}: {e}")
             return None
 
-def extract_personal_info(message: str) -> Dict[str, str]:
-    """Извлечение персональной информации из сообщения"""
-    info = {}
-    
-    # Поиск имени
-    name_patterns = [r'меня зовут (\w+)', r'я (\w+)', r'зовут (\w+)']
-    for pattern in name_patterns:
-        match = re.search(pattern, message.lower())
-        if match:
-            info['name'] = match.group(1).capitalize()
-            break
-    
-    # Поиск увлечений
-    interest_keywords = ['люблю', 'нравится', 'увлекаюсь', 'занимаюсь', 'хобби']
-    interest_pattern = r'(' + '|'.join(interest_keywords) + r') ([^.!?]+)'
-    match = re.search(interest_pattern, message.lower())
-    if match:
-        info['interests'] = match.group(2)
-    
-    return info
-
 async def process_message_with_deep_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщения с глубоким контекстным анализом"""
     try:
@@ -988,14 +1086,29 @@ async def process_message_with_deep_context(update: Update, context: ContextType
         user_message = update.message.text
         
         user_context = get_user_context(user_id)
+        
+        # Сначала проверяем личные вопросы
+        personal_response = handle_personal_questions(user_message, user_context)
+        if personal_response:
+            await update.message.reply_text(personal_response)
+            
+            # Сохраняем контекст даже для простых ответов
+            save_complete_context(
+                user_id, 
+                user_message, 
+                personal_response, 
+                user_context.get('deep_context', {}), 
+                {'dominant_emotion': 'neutral', 'intensity': 0.5, 'emotional_trend': 'stable'}, 
+                {'conversation_style': 'balanced', 'typing_time': 0.5, 'thinking_time': 0.5}
+            )
+            return
+        
         history = user_context.get('history', [])
         
         # Извлечение персональной информации
         personal_info = extract_personal_info(user_message)
-        if 'name' in personal_info:
-            save_user_fact(user_id, 'name', personal_info['name'])
-        if 'interests' in personal_info:
-            save_user_fact(user_id, 'interests', personal_info['interests'])
+        for fact_type, fact_value in personal_info.items():
+            save_user_fact(user_id, fact_type, fact_value)
         
         # Создание или получение личности бота
         if 'bot_personality' not in user_context or not user_context['bot_personality']:
@@ -1077,82 +1190,34 @@ def create_deep_context_prompt(message, deep_context, emotional_state, memory_re
     """Создание промпта с глубоким контекстом"""
     history_length = len(user_context.get('history', []))
     user_facts = user_context.get('user_facts', {})
-    pronouns = personality_generator.get_gender_pronouns(bot_personality['gender'])
+    user_name = user_facts.get('name', 'друг')
     
-    # Базовая информация о боте
-    bot_info = f"""
-Ты - {bot_personality['name']}, {random.choice(bot_personality['traits'])} и {random.choice(bot_personality['traits'])}.
-{bot_personality['backstory']}. Увлекаюсь {', '.join(random.sample(bot_personality['interests'], 2))}.
+    base_prompt = f"""
+Ты - {bot_personality['name']}, {random.choice(bot_personality['traits'])} собеседник.
+{bot_personality['backstory']}. Увлекаюсь {', '.join(bot_personality['interests'][:2])}.
 
-Стиль общения: {bot_personality['speech_style']}
-"""
-    
-    # Информация о пользователе
-    user_info = ""
-    if user_facts:
-        user_info = "\nИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ:\n"
-        if 'name' in user_facts:
-            user_info += f"Имя: {user_facts['name']}\n"
-        if 'interests' in user_facts:
-            user_info += f"Увлечения: {user_facts['interests']}\n"
-    
-    if history_length < 5:
-        return f"""
-{bot_info}
-
-ТЕКУЩАЯ БЕСЕДА:
+Пользователь: {user_name}
 Сообщение: {message}
-Эмоциональный тон: {emotional_state.get('dominant_emotion', 'neutral')}
-
-{user_info}
-
-Твой ответ (естественный, человечный, 1-2 предложения, в стиле {bot_personality['speech_style']}):
-"""
-    
-    elif history_length < 15:
-        current_topics = deep_context.get('current_topics', {})
-        return f"""
-{bot_info}
-
-ТЕКУЩИЙ КОНТЕКСТ:
-Сообщение: {message}
-Текущие темы: {', '.join(list(current_topics.keys())[:2]) if current_topics else 'новый разговор'}
 Эмоции: {emotional_state.get('dominant_emotion', 'neutral')}
+"""
 
-{user_info}
-
-Твой ответ (естественный, 2-3 предложения, в стиле {bot_personality['speech_style']}):
+    # Добавляем исторические темы если есть
+    historical_topics = deep_context.get('historical_topics', {})
+    if historical_topics:
+        base_prompt += f"\nРанее обсуждали: {', '.join(list(historical_topics.keys())[:2])}"
+    
+    # Добавляем воспоминания если есть
+    if memory_reference:
+        base_prompt += f"\n{memory_reference}"
+    
+    base_prompt += f"""
+\nОтвечай естественно, как {bot_personality['name']}.
+Используй стиль: {bot_personality['speech_style']}
+Будь {random.choice(bot_personality['traits'])}
+\nТвой ответ:
 """
     
-    else:
-        current_topics = deep_context.get('current_topics', {})
-        historical_topics = deep_context.get('historical_topics', {})
-        conversation_rhythm = deep_context.get('conversation_rhythm', {})
-        
-        return f"""
-{bot_info}
-
-ТЕКУЩИЙ КОНТЕКСТ:
-- Сообщение: {message}
-- Эмоции: {emotional_state.get('dominant_emotion', 'neutral')} (интенсивность: {emotional_state.get('intensity', 0.5):.2f})
-- Темп: {conversation_rhythm.get('pace', 'medium')}
-
-ИСТОРИЯ БЕСЕДЫ:
-Текущие темы: {', '.join(list(current_topics.keys())[:3])}
-Исторические темы: {', '.join(list(historical_topics.keys())[:3])}
-
-{user_info}
-
-{'ВОСПОМИНАНИЕ: ' + memory_reference if memory_reference else ''}
-
-ВЕДИ СЕБЯ КАК ЖИВОЙ ЧЕЛОВЕК {bot_personality['name']}:
-- Используй стиль: {bot_personality['speech_style']}
-- Учитывай интересы: {', '.join(bot_personality['interests'][:2])}
-- Будь {random.choice(bot_personality['traits'])}
-- Помни предысторию: {bot_personality['backstory']}
-
-Твой ответ (естественный, контекстно-осознанный, в характере {bot_personality['name']}):
-"""
+    return base_prompt
 
 async def generate_ai_response(prompt, style):
     """Генерация ответа с учетом стиля"""
@@ -1174,7 +1239,7 @@ async def generate_ai_response(prompt, style):
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
         "completionOptions": {
             "stream": False,
-            "temperature": temperature,
+            "temperature': temperature,
             "maxTokens": 2000
         },
         "messages": [
