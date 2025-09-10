@@ -304,68 +304,7 @@ class DeepContextAnalyzer:
             patterns['response_style'] = 'detailed' if avg_length > 50 else 'concise'
         
         return patterns
-
-class MemorySystem:
-    """Система памяти и воспоминаний"""
-    
-    def __init__(self):
-        self.long_term_memory = {}
-        self.associative_triggers = self._create_associative_triggers()
-    
-    def _create_associative_triggers(self):
-        """Ассоциативные триггеры для воспоминаний"""
-        return {
-            'time_based': {
-                'today': "Кстати, помнишь сегодня мы говорили о {}?",
-                'recent': "Вспомнил наш недавний разговор про {}",
-                'past': "О, давно мы не вспоминали о {}"
-            },
-            'topic_based': {
-                'strong': "Говоря о {}, не могу не вспомнить...",
-                'medium': "Это напоминает мне о {}",
-                'weak': "Кстати, о {}..."
-            },
-            'emotional': {
-                'positive': "Вспомнилось как мы весело обсуждали {}",
-                'negative': "Помнишь тот сложный разговор о {}?",
-                'neutral': "Пришло на ум наше обсуждение {}"
-            }
-        }
-    
-    def create_contextual_memory(self, current_message, history, user_context):
-        """Создание контекстных воспоминаний"""
-        if len(history) < 3:
-            return None
-        
-        current_topics = set(DeepContextAnalyzer()._extract_topics(current_message).keys())
-        memory_candidates = []
-        
-        for i, past_msg in enumerate(history[-20:]):
-            if 'user' in past_msg:
-                past_topics = set(DeepContextAnalyzer()._extract_topics(past_msg['user']).keys())
-                common_topics = current_topics.intersection(past_topics)
-                
-                if common_topics:
-                    days_ago = (datetime.now() - past_msg.get('timestamp', datetime.now())).days
-                    memory_candidates.append({
-                        'topics': common_topics,
-                        'recency': days_ago,
-                        'message': past_msg['user'],
-                        'index': i
-                    })
-        
-        if not memory_candidates:
-            return None
-        
-        best_memory = max(memory_candidates, key=lambda x: (
-            len(x['topics']) * 0.5 + 
-            (1 / (x['recency'] + 1)) * 0.3 +
-            random.random() * 0.2
-        ))
-        
-        topic = random.choice(list(best_memory['topics']))
-        return self._format_memory_reference(topic, best_memory['recency'])
-    
+   
     def _format_memory_reference(self, topic, days_ago):
         """Форматирование ссылки на воспоминание"""
         if days_ago == 0:
@@ -385,43 +324,6 @@ class MemorySystem:
         
         return template.format(topic)
 
-class EmotionalIntelligence:
-    """Эмоциональный интеллект"""
-    
-    def __init__(self):
-        self.empathy_responses = self._create_empathy_responses()
-    
-    def _create_empathy_responses(self):
-        """Создание эмпатичных ответов"""
-        return {
-            'joy': ['Я рад за тебя!', 'Это прекрасно!', 'Как здорово!'],
-            'sadness': ['Понимаю тебя...', 'Мне жаль...', 'Держись!'],
-            'anger': ['Понимаю твои чувства', 'Это действительно неприятно'],
-            'excitement': ['Здорово!', 'Восхитительно!', 'Я разделяю твой восторг!'],
-            'confusion': ['Понимаю твоё замешательство', 'Давай разберемся вместе']
-        }
-       
-    def analyze_emotional_state(self, message, history):
-        """Анализ эмоционального состояния"""
-        text = message.lower()
-        
-        emotions = {
-            'joy': self._detect_emotion(text, ['рад', 'счастлив', 'ура', 'класс', 'супер']),
-            'sadness': self._detect_emotion(text, ['грустно', 'печально', 'плохо', 'тяжело']),
-            'anger': self._detect_emotion(text, ['злой', 'сердит', 'бесит', 'ненавижу']),
-            'excitement': self._detect_emotion(text, ['!', '!!', '!!!', 'вау', 'ого']),
-            'confusion': self._detect_emotion(text, ['?', '??', '???', 'не понимаю', 'запутался'])
-        }
-        
-        emotional_trend = self._analyze_emotional_trend(history)
-        
-        return {
-            'current_emotions': emotions,
-            'dominant_emotion': max(emotions.items(), key=lambda x: x[1])[0],
-            'emotional_trend': emotional_trend,
-            'intensity': max(emotions.values()) if emotions else 0
-        }
-    
     def _detect_emotion(self, text, triggers):
         """Обнаружение эмоции"""
         score = 0
@@ -643,15 +545,6 @@ class HumanConversationSimulator:
                 'conversation_style': 'balanced',
                 'typing_profile': 'normal'
             }
-
-# Глобальные экземпляры
-personality_generator = PersonalityGenerator()
-context_analyzer = DeepContextAnalyzer()
-conversation_simulator = HumanConversationSimulator()
-memory_system = MemorySystem()
-emotional_intelligence = EmotionalIntelligence()
-
-# ... (остальные функции остаются без изменений, начиная с extract_personal_info) ...
 
 class MemorySystem:
     """Система памяти и воспоминаний"""
@@ -1547,6 +1440,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
