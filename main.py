@@ -206,22 +206,21 @@ class DeepContextAnalyzer:
                         historical_topics[topic] = weight * (0.9 ** i)
         
         return dict(sorted(historical_topics.items(), key=lambda x: x[1], reverse=True)[:8])
-    
     def _analyze_emotional_arc(self, history):
         """Анализ эмоциональной дуги беседы"""
-        emotions = []
-        for msg in history[-10:]:
-            if 'user' in msg:
-                emotional_score = self._calculate_emotional_score(msg['user'])
-                emotions.append(emotional_score)
-        
-        if len(emotions) > 2:
-            trend = np.polyfit(range(len(emotions)), emotions, 1)[0]
-            return {
-                'current_mood': emotions[-1] if emotions else 0.5,
-                'trend': trend,
-                'volatility': np.std(em emotions) if len(emotions) > 1 else 0
-            }
+    emotions = []
+    for msg in history[-10:]:
+        if 'user' in msg:
+            emotional_score = self._calculate_emotional_score(msg['user'])
+            emotions.append(emotional_score)
+    
+    if len(emotions) > 2:
+        trend = np.polyfit(range(len(emotions)), emotions, 1)[0]
+        return {
+            'current_mood': emotions[-1] if emotions else 0.5,
+            'trend': trend,
+            'volatility': np.std(emotions) if len(emotions) > 1 else 0  # ИСПРАВЛЕННАЯ СТРОКА
+        }
         return {'current_mood': 0.5, 'trend': 0, 'volatility': 0}
     
     def _calculate_emotional_score(self, text):
@@ -1537,6 +1536,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
