@@ -140,7 +140,7 @@ class PersonalityGenerator:
             'interests': interests[:3],
             'backstory': random.choice(self.backstories),
             'question_rate': persona['question_rate'],
-            'created_at': datetime.now()
+            'created_at': datetime.now().isoformat()
         }
         
         return personality
@@ -395,25 +395,34 @@ class HumanConversationSimulator:
             return 1.0
     
     def _calculate_typing_time(self, message, profile, context):
-        """Время печатания"""
+    """Время печатания"""
+    try:
+        profile_config = self.typing_profiles.get(profile, self.typing_profiles['normal'])
+        
+        base_speed = float(profile_config.get('base_speed', 0.03))
+        variation_range = float(profile_config.get('variation', 0.8))
+        
+        base_time = len(message) * base_speed
+        
+        variation = random.uniform(1 - variation_range, 1 + variation_range)
+        
+        # Пытаемся получить messages_count, защищаемся от некорректных значений
+        raw_count = context.get('messages_count', 0)
         try:
-            profile_config = self.typing_profiles.get(profile, self.typing_profiles['normal'])
-            
-            base_speed = float(profile_config.get('base_speed', 0.03))
-            variation_range = float(profile_config.get('variation', 0.8))
-            
-            base_time = len(message) * base_speed
-            
-            variation = random.uniform(1 - variation_range, 1 + variation_range)
-            
-            messages_count = int(context.get('messages_count', 0))
-            experience = max(0.7, 1.0 - (messages_count * 0.0005))
-            
-            return float(base_time) * float(variation) * float(experience)
-            
-        except (TypeError, ValueError) as e:
-            logger.error(f"Ошибка вычисления времени печатания: {e}")
-            return len(message) * 0.03
+            # Пытаемся преобразовать в целое число
+            messages_count = int(raw_count)
+        except (TypeError, ValueError):
+            # Если не получается (например, это строка или None), используем 0
+            messages_count = 0
+        
+        # Этот блок должен быть ВНЕ внутреннего try-except
+        experience = max(0.7, 1.0 - (messages_count * 0.0005))
+        
+        return float(base_time) * float(variation) * float(experience)
+        
+    except (TypeError, ValueError) as e:
+        logger.error(f"Ошибка вычисления времени печатания: {e}")
+        return len(message) * 0.03
     
     async def simulate_human_response(self, message, context, history):
         """Симуляция человеческого ответа"""
@@ -1340,4 +1349,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
