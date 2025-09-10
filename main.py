@@ -395,7 +395,7 @@ class HumanConversationSimulator:
             return 1.0
     
     def _calculate_typing_time(self, message, profile, context):
-    """Время печатания"""
+        """Время печатания"""
     try:
         profile_config = self.typing_profiles.get(profile, self.typing_profiles['normal'])
         
@@ -1349,5 +1349,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
