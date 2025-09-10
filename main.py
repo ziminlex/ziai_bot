@@ -194,11 +194,11 @@ class DeepContextAnalyzer:
         return dict(sorted(topics.items(), key=lambda x: x[1], reverse=True)[:5])
     
     def _analyze_historical_topics(self, history):
-    """Анализ исторических тем"""
-    historical_topics = {}
-    for i, msg in enumerate(history[-20:]):
-        if 'user' in msg:
-            topics = self._extract_topics(msg['user'])
+        """Анализ исторических тем"""
+        historical_topics = {}
+        for i, msg in enumerate(history[-20:]):
+            if 'user' in msg:
+                topics = self._extract_topics(msg['user'])
             for topic, weight in topics.items():
                 if topic in historical_topics:
                     historical_topics[topic] += weight * (0.9 ** i)
@@ -1537,6 +1537,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
