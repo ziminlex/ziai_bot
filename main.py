@@ -1,6 +1,6 @@
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import logging
 import requests
@@ -11,24 +11,15 @@ import random
 import signal
 import sys
 import aiohttp
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-from datetime import datetime, timedelta
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler, CallbackContext
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 from telegram.error import Conflict
-from enum import Enum
 from collections import deque, defaultdict
 import numpy as np
 import humanize
 from dateutil import parser
-import uuid
 from typing import Dict, Any, List, Optional
 import hashlib
-import json
 
 # Настройка логирования
 logging.basicConfig(
@@ -229,7 +220,7 @@ class DeepContextAnalyzer:
             return {
                 'current_mood': emotions[-1] if emotions else 0.5,
                 'trend': trend,
-                'volatility': np.std(emotions) if len(emotions) > 1 else 0
+                'volatility': np.std(em emotions) if len(emotions) > 1 else 0
             }
         return {'current_mood': 0.5, 'trend': 0, 'volatility': 0}
     
@@ -303,6 +294,194 @@ class DeepContextAnalyzer:
             patterns['response_style'] = 'detailed' if avg_length > 50 else 'concise'
         
         return patterns
+
+class MemorySystem:
+    """Система памяти и воспоминаний"""
+    
+    def __init__(self):
+        self.long_term_memory = {}
+        self.associative_triggers = self._create_associative_triggers()
+    
+    def _create_associative_triggers(self):
+        """Ассоциативные триггеры для воспоминаний"""
+        return {
+            'time_based': {
+                'today': "Кстати, помнишь сегодня мы говорили о {}?",
+                'recent': "Вспомнил наш недавний разговор про {}",
+                'past': "О, давно мы не вспоминали о {}"
+            },
+            'topic_based': {
+                'strong': "Говоря о {}, не могу не вспомнить...",
+                'medium': "Это напоминает мне о {}",
+                'weak': "Кстати, о {}..."
+            },
+            'emotional': {
+                'positive': "Вспомнилось как мы весело обсуждали {}",
+                'negative': "Помнишь тот сложный разговор о {}?",
+                'neutral': "Пришло на ум наше обсуждение {}"
+            }
+        }
+    
+    def create_contextual_memory(self, current_message, history, user_context):
+        """Создание контекстных воспоминаний"""
+        if len(history) < 3:
+            return None
+        
+        current_topics = set(DeepContextAnalyzer()._extract_topics(current_message).keys())
+        memory_candidates = []
+        
+        for i, past_msg in enumerate(history[-20:]):
+            if 'user' in past_msg:
+                past_topics = set(DeepContextAnalyzer()._extract_topics(past_msg['user']).keys())
+                common_topics = current_topics.intersection(past_topics)
+                
+                if common_topics:
+                    days_ago = (datetime.now() - past_msg.get('timestamp', datetime.now())).days
+                    memory_candidates.append({
+                        'topics': common_topics,
+                        'recency': days_ago,
+                        'message': past_msg['user'],
+                        'index': i
+                    })
+        
+        if not memory_candidates:
+            return None
+        
+        best_memory = max(memory_candidates, key=lambda x: (
+            len(x['topics']) * 0.5 + 
+            (1 / (x['recency'] + 1)) * 0.3 +
+            random.random() * 0.2
+        ))
+        
+        topic = random.choice(list(best_memory['topics']))
+        return self._format_memory_reference(topic, best_memory['recency'])
+    
+    def _format_memory_reference(self, topic, days_ago):
+        """Форматирование ссылки на воспоминание"""
+        if days_ago == 0:
+            time_key = 'today'
+        elif days_ago <= 3:
+            time_key = 'recent'
+        else:
+            time_key = 'past'
+        
+        memory_type = random.choice(['time_based', 'topic_based', 'emotional'])
+        intensity = random.choice(['strong', 'medium', 'weak'])
+        
+        template = self.associative_triggers[memory_type].get(
+            intensity, 
+            self.associative_triggers[memory_type]['medium']
+        )
+        
+        return template.format(topic)
+
+class EmotionalIntelligence:
+    """Эмоциональный интеллект"""
+    
+    def __init__(self):
+        self.empathy_responses = self._create_empathy_responses()
+    
+    def _create_empathy_responses(self):
+        """Создание эмпатичных ответов"""
+        return {
+            'joy': ['Я рад за тебя!', 'Это прекрасно!', 'Как здорово!'],
+            'sadness': ['Понимаю тебя...', 'Мне жаль...', 'Держись!'],
+            'anger': ['Понимаю твои чувства', 'Это действительно неприятно'],
+            'excitement': ['Здорово!', 'Восхитительно!', 'Я разделяю твой восторг!'],
+            'confusion': ['Понимаю твоё замешательство', 'Давай разберемся вместе']
+        }
+       
+    def analyze_emotional_state(self, message, history):
+        """Анализ эмоционального состояния"""
+        text = message.lower()
+        
+        emotions = {
+            'joy': self._detect_emotion(text, ['рад', 'счастлив', 'ура', 'класс', 'супер']),
+            'sadness': self._detect_emotion(text, ['грустно', 'печально', 'плохо', 'тяжело']),
+            'anger': self._detect_emotion(text, ['злой', 'сердит', 'бесит', 'ненавижу']),
+            'excitement': self._detect_emotion(text, ['!', '!!', '!!!', 'вау', 'ого']),
+            'confusion': self._detect_emotion(text, ['?', '??', '???', 'не понимаю', 'запутался'])
+        }
+        
+        emotional_trend = self._analyze_emotional_trend(history)
+        
+        return {
+            'current_emotions': emotions,
+            'dominant_emotion': max(emotions.items(), key=lambda x: x[1])[0],
+            'emotional_trend': emotional_trend,
+            'intensity': max(emotions.values()) if emotions else 0
+        }
+    
+    def _detect_emotion(self, text, triggers):
+        """Обнаружение эмоции"""
+        score = 0
+        for trigger in triggers:
+            if trigger in text:
+                score += 1
+        return min(1.0, score * 0.3)
+    
+    def _analyze_emotional_trend(self, history):
+        """Анализ эмоционального тренда"""
+        if len(history) < 3:
+            return 'stable'
+        
+        recent_scores = []
+        for msg in history[-5:]:
+            if 'user' in msg:
+                score = self._calculate_emotional_score(msg['user'])
+                recent_scores.append(score)
+        
+        if len(recent_scores) > 2:
+            trend = np.polyfit(range(len(recent_scores)), recent_scores, 1)[0]
+            if abs(trend) > 0.1:
+                return 'improving' if trend > 0 else 'worsening'
+        return 'stable'
+    
+    def _calculate_emotional_score(self, text):
+        """Вычисление эмоционального скора"""
+        positive = sum(1 for word in ['рад', 'счастлив', 'хорошо', 'отлично'] if word in text.lower())
+        negative = sum(1 for word in ['грустно', 'плохо', 'ненавижу', 'злой'] if word in text.lower())
+        
+        total = positive + negative + 0.001
+        return positive / total
+    
+    def generate_empathic_response(self, emotional_state, response):
+        """Генерация эмпатичного ответа"""
+        dominant = emotional_state['dominant_emotion']
+        intensity = emotional_state['intensity']
+        
+        if intensity > 0.3:
+            emotional_reaction = self._get_emotional_reaction(dominant, intensity)
+            if random.random() < 0.6:
+                response = f"{emotional_reaction} {response}"
+            
+            if random.random() < 0.4:
+                empathic_phrase = self._get_empathic_phrase(dominant, intensity)
+                response = f"{response} {empathic_phrase}"
+        
+        return response
+    
+    def _get_emotional_reaction(self, emotion, intensity):
+        """Получение эмоциональной реакции"""
+        reactions = {
+            'joy': ['😊', '🎉', '✨', '🥳'],
+            'sadness': ['😔', '🤗', '❤️', '💔'],
+            'anger': ['😠', '😤', '💢', '⚡'],
+            'excitement': ['😃', '🚀', '🌟', '🔥'],
+            'confusion': ['🤔', '😕', '🧐', '💭']
+        }
+        return random.choice(reactions.get(emotion, ['🙂']))
+    
+    def _get_empathic_phrase(self, emotion, intensity):
+        """Получение эмпатичной фразы"""
+        phrases = {
+            'joy': ['Я рад за тебя!', 'Это прекрасно!', 'Как здорово!'],
+            'sadness': ['Понимаю тебя...', 'Мне жаль...', 'Держись!'],
+            'anger': ['Понимаю твои чувства', 'Это действительно неприятно'],
+            'excitement': ['Здорово!', 'Восхитительно!', 'Я разделяю твой восторг!'],
+            'confusion': ['Понимаю твоё замешательство', 'Давай разберемся вместе']
+        }
+        return random.choice(phrases.get(emotion, ['Понимаю...']))
 
 class HumanConversationSimulator:
     """Симулятор человеческой беседы"""
@@ -396,33 +575,33 @@ class HumanConversationSimulator:
     
     def _calculate_typing_time(self, message, profile, context):
         """Время печатания"""
-    try:
-        profile_config = self.typing_profiles.get(profile, self.typing_profiles['normal'])
-        
-        base_speed = float(profile_config.get('base_speed', 0.03))
-        variation_range = float(profile_config.get('variation', 0.8))
-        
-        base_time = len(message) * base_speed
-        
-        variation = random.uniform(1 - variation_range, 1 + variation_range)
-        
-        # Пытаемся получить messages_count, защищаемся от некорректных значений
-        raw_count = context.get('messages_count', 0)
         try:
-            # Пытаемся преобразовать в целое число
-            messages_count = int(raw_count)
-        except (TypeError, ValueError):
-            # Если не получается (например, это строка или None), используем 0
-            messages_count = 0
-        
-        # Этот блок должен быть ВНЕ внутреннего try-except
-        experience = max(0.7, 1.0 - (messages_count * 0.0005))
-        
-    return float(base_time) * float(variation) * float(experience)
-        
-    except (TypeError, ValueError) as e:
-        logger.error(f"Ошибка вычисления времени печатания: {e}")
-        return len(message) * 0.03
+            profile_config = self.typing_profiles.get(profile, self.typing_profiles['normal'])
+            
+            base_speed = float(profile_config.get('base_speed', 0.03))
+            variation_range = float(profile_config.get('variation', 0.8))
+            
+            base_time = len(message) * base_speed
+            
+            variation = random.uniform(1 - variation_range, 1 + variation_range)
+            
+            # Пытаемся получить messages_count, защищаемся от некорректных значений
+            raw_count = context.get('messages_count', 0)
+            try:
+                # Пытаемся преобразовать в целое число
+                messages_count = int(raw_count)
+            except (TypeError, ValueError):
+                # Если не получается (например, это строка или None), используем 0
+                messages_count = 0
+            
+            # Этот блок должен быть ВНЕ внутреннего try-except
+            experience = max(0.7, 1.0 - (messages_count * 0.0005))
+            
+            return float(base_time) * float(variation) * float(experience)
+            
+        except (TypeError, ValueError) as e:
+            logger.error(f"Ошибка вычисления времени печатания: {e}")
+            return len(message) * 0.03
     
     async def simulate_human_response(self, message, context, history):
         """Симуляция человеческого ответа"""
@@ -454,6 +633,15 @@ class HumanConversationSimulator:
                 'conversation_style': 'balanced',
                 'typing_profile': 'normal'
             }
+
+# Глобальные экземпляры
+personality_generator = PersonalityGenerator()
+context_analyzer = DeepContextAnalyzer()
+conversation_simulator = HumanConversationSimulator()
+memory_system = MemorySystem()
+emotional_intelligence = EmotionalIntelligence()
+
+# ... (остальные функции остаются без изменений, начиная с extract_personal_info) ...
 
 class MemorySystem:
     """Система памяти и воспоминаний"""
@@ -1349,6 +1537,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
